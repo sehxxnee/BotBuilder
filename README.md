@@ -6,7 +6,11 @@ Non-developers can create, customize, and deploy their own AI chatbot directly f
 ✨ Features
 
 No-code chatbot creation: Build chatbots through simple forms and options. No coding required!
+
 Custom knowledge sources: Add your own FAQs, documents, or URLs as the chatbot’s knowledge base.
+
 Flexible personality & tone: Adjust how your chatbot speaks and behaves.
+
 Web integration: Easily embed your chatbot into any website.
+
 Bot management: Modify, delete, and track chatbot performance with simple analytics.
