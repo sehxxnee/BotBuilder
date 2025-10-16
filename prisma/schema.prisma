@@ -9,7 +9,26 @@ datasource db {
 }
 
 model Bot {
+  id           String   @id @default(uuid())
+  publicKey    String   @unique
+  name         String
+  description  String?
+  language     String   @default("ko")
+  tone         String   @default("neutral")
+  settingsJson String   @default("{}")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  datasources Datasource[]
+}
+
+model Datasource {
   id        String   @id @default(uuid())
-  name      String
+  botId     String
+  type      String   @default("url")
+  url       String
+  status    String   @default("saved")
   createdAt DateTime @default(now())
+
+  bot Bot @relation(fields: [botId], references: [id])
 }
