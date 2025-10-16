@@ -1,18 +1,18 @@
-import { NextResponse } from 'next/server';
-import { prisma } from '@/shared/lib/db';
-import { randomUUID } from 'crypto';
+import { ok, bad } from '@shared/api/http';
+import { createBot } from '@features/bot/create/server/action';
+import { listBots } from '@features/bot/list/server/query';
 
 export async function GET() {
-  const bots = await prisma.bot.findMany({ orderBy: { createdAt: 'desc' } });
-  return NextResponse.json(bots);
+  const bots = await listBots();
+  return ok(bots);
 }
 
 export async function POST(req: Request) {
-  const { name, description } = await req.json().catch(() => ({}));
-  if (!name) return NextResponse.json({ error: 'name is required' }, { status: 400 });
-
-  const bot = await prisma.bot.create({
-    data: { id: randomUUID(), publicKey: randomUUID(), name, description: description ?? null },
-  });
-  return NextResponse.json(bot, { status: 201 });
+  try {
+    const body = await req.json();
+    const bot = await createBot(body);
+    return ok(bot, 201);
+  } catch (e: any) {
+    return bad(e?.message ?? 'invalid input', 400);
+  }
 }
