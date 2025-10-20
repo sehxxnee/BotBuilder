@@ -13,6 +13,29 @@ export default function ChatPanel({ botId }: { botId: string }) {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
   }, [messages]);
 
+  useEffect(() => {
+    (async () => {
+      const res = await fetch(`/api/bots/${botId}/messages`, { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        const mapped: Message[] = data.map((m: any) => ({ id: m.id, role: m.role, content: m.content }));
+        if (mapped.length === 0) {
+          // no history → request greeting seed via chat call with empty ping
+          try {
+            const r = await fetch(`/api/bots/${botId}/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: '' }) });
+            if (r.ok) {
+              const again = await fetch(`/api/bots/${botId}/messages`, { cache: 'no-store' });
+              const after = await again.json();
+              setMessages(after.map((m: any) => ({ id: m.id, role: m.role, content: m.content })));
+              return;
+            }
+          } catch {}
+        }
+        setMessages(mapped);
+      }
+    })();
+  }, [botId]);
+
   async function send() {
     const text = input.trim();
     if (!text) return;

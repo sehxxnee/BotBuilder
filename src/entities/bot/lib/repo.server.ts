@@ -21,4 +21,7 @@ export const BotRepo = {
   }) {
     return prisma.bot.create({ data });
   },
+  delete(id: string) {
+    return prisma.bot.delete({ where: { id } });
+  },
 };

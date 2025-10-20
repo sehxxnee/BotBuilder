@@ -20,6 +20,8 @@ model Bot {
   updatedAt    DateTime @updatedAt
 
   datasources Datasource[]
+  chunks      DocumentChunk[]
+  messages    ChatMessage[]
 }
 
 model Datasource {
@@ -30,5 +32,32 @@ model Datasource {
   status    String   @default("saved")
   createdAt DateTime @default(now())
 
-  bot Bot @relation(fields: [botId], references: [id])
+  bot    Bot            @relation(fields: [botId], references: [id])
+  chunks DocumentChunk[]
+}
+
+model DocumentChunk {
+  id           String   @id @default(uuid())
+  botId        String
+  datasourceId String?
+  content      String
+  embedding    Json
+  createdAt    DateTime @default(now())
+
+  bot        Bot         @relation(fields: [botId], references: [id])
+  datasource Datasource? @relation(fields: [datasourceId], references: [id])
+
+  @@index([botId])
+}
+
+model ChatMessage {
+  id        String   @id @default(uuid())
+  botId     String
+  role      String   // 'user' | 'assistant'
+  content   String
+  createdAt DateTime @default(now())
+
+  bot       Bot      @relation(fields: [botId], references: [id])
+
+  @@index([botId, createdAt])
 }

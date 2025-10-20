@@ -10,4 +10,7 @@ export const DatasourceRepo = {
   addFile(botId: string, filename: string) {
     return prisma.datasource.create({ data: { botId, type: 'file', url: filename } });
   },
+  deleteByBot(botId: string) {
+    return prisma.datasource.deleteMany({ where: { botId } });
+  },
 };
