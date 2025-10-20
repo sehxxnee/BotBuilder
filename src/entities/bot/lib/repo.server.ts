@@ -7,6 +7,9 @@ export const BotRepo = {
   findByPublicKey(publicKey: string) {
     return prisma.bot.findFirst({ where: { publicKey } });
   },
+  findById(id: string) {
+    return prisma.bot.findUnique({ where: { id } });
+  },
   create(data: {
     id: string;
     publicKey: string;
