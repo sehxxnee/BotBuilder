@@ -7,7 +7,15 @@ export const BotRepo = {
   findByPublicKey(publicKey: string) {
     return prisma.bot.findFirst({ where: { publicKey } });
   },
-  create(data: { id: string; publicKey: string; name: string; description?: string | null }) {
+  create(data: {
+    id: string;
+    publicKey: string;
+    name: string;
+    description?: string | null;
+    language?: string;
+    tone?: string;
+    settingsJson?: string;
+  }) {
     return prisma.bot.create({ data });
   },
 };

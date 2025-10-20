@@ -7,4 +7,7 @@ export const DatasourceRepo = {
   add(botId: string, url: string) {
     return prisma.datasource.create({ data: { botId, url } });
   },
+  addFile(botId: string, filename: string) {
+    return prisma.datasource.create({ data: { botId, type: 'file', url: filename } });
+  },
 };
