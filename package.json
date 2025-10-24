@@ -16,9 +16,11 @@
     "@trpc/next": "^11.6.0",
     "@trpc/react-query": "^11.6.0",
     "@trpc/server": "^11.6.0",
+    "groq-sdk": "^0.34.0",
     "next": "16.0.0",
     "react": "19.2.0",
     "react-dom": "19.2.0",
+    "superjson": "^2.2.3",
     "zod": "^4.1.12"
   },
   "devDependencies": {
