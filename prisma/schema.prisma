@@ -1,0 +1,65 @@
+// prisma/schema.prisma
+
+// 1. 데이터베이스 설정 (Supabase는 PostgreSQL입니다)
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// 2. 클라이언트 생성 설정
+generator client {
+  provider = "prisma-client-js"
+}
+
+// --- 3. 핵심 데이터 모델 정의 ---
+
+// A. 챗봇 모델: 사용자가 빌더로 생성하는 챗봇의 설정
+model Chatbot {
+  id              String       @id @default(cuid())
+  name            String       // 챗봇 이름
+  systemPrompt    String       @db.Text // LLM에게 부여할 역할
+  
+  // 상태 관리 (선택 사항이지만 유용함)
+  isActive        Boolean      @default(true)
+  
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  
+  // 관계 정의
+  knowledgeChunks KBChunk[]
+  queryLogs       QueryLog[]
+}
+
+// B. 지식 청크 모델 (RAG의 핵심): pgvector 사용
+model KBChunk {
+  id              String      @id @default(cuid())
+  
+  // pgvector 타입: PostgreSQL에서 'vector' 타입으로 생성됨
+  embedding       Unsupported("vector(1536)") // Groq/OpenAI 기본 차원 (1536) 사용 권장
+  
+  content         String      @db.Text // 원본 텍스트 내용
+  sourceFileKey   String      // Cloudflare R2에 저장된 파일의 키 (원본 추적)
+  metadata        Json?       // 출처, 페이지 번호 등 RAG 디버깅용 메타데이터
+
+  createdAt       DateTime    @default(now())
+  
+  // 관계
+  chatbotId       String
+  chatbot         Chatbot     @relation(fields: [chatbotId], references: [id])
+}
+
+// C. 쿼리 로그 모델: 모든 사용자 상호작용 기록
+model QueryLog {
+  id              String      @id @default(cuid())
+  question        String      @db.Text
+  answer          String      @db.Text
+  
+  // RAG 디버깅용: 검색된 청크 ID 목록
+  retrievedChunkIds String[]    
+  
+  createdAt       DateTime    @default(now())
+
+  // 관계
+  chatbotId       String
+  chatbot         Chatbot     @relation(fields: [chatbotId], references: [id])
+}
