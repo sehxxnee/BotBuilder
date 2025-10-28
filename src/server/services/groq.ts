@@ -1,63 +1,81 @@
-// src/server/services/groq.ts
 
-import { Groq } from 'groq-sdk';
 
-// 🚨 Groq API 키는 .env 파일에서 가져옵니다.
+import Groq from 'groq-sdk';
+import { ReadableStream } from 'stream/web'; // Node.js 환경에서 스트림을 사용하기 위해 필요
+
+// 🚨 환경 변수 로드 방식 수정: process.env 대신 직접 접근
+// Next.js 환경에서는 process.env가 바로 사용 가능하므로, 
+// Groq 클라이언트가 .env의 GROQ_API_KEY를 직접 읽도록 초기화합니다.
 const groq = new Groq({
-  apiKey: process.env.GROQ_API_KEY, 
+    apiKey: process.env.GROQ_API_KEY, 
 });
 
-// Groq 모델명을 정의 (더 빠른 추론 속도와 RAG에 적합한 모델을 선택)
-const GENERATION_MODEL = 'llama3-70b-8192'; 
-const EMBEDDING_MODEL = 'text-embedding-3-small'; 
-// Groq는 embedding 모델을 직접 제공하지 않으므로, 이 부분을 위한 별도 서비스(예: OpenAI)가 필요하거나, 
-// Groq의 Chat Completions API를 임베딩 대체 용도로 사용해야 할 수 있습니다. 
-// 여기서는 임베딩 기능은 별도의 서비스가 있다고 가정하고, 일단 Groq는 생성을 담당하도록 합니다.
+// --- 1. 임베딩 모델 정의 및 Mock 로직 ---
 
-// 임베딩 서비스가 필요하다는 점을 가정하고, 임시 함수로 대체
-export async function createEmbedding(text: string): Promise<number[]> {
-  // 🚨 실제로는 임베딩 전용 서비스(예: OpenAI)의 API를 호출해야 합니다.
-  // Groq는 현재(2025년 기준) 임베딩 모델을 직접 제공하지 않습니다.
-  // RAG 구현을 위해서는 임베딩 서비스(예: OpenAI, Cohere)를 별도로 사용해야 함을 유의하세요.
-  console.warn("Using placeholder for embedding. Replace with actual embedding service call.");
-  return Array(1536).fill(0); // 임시 더미 벡터 반환
-}
+// Groq는 자체 임베딩 API를 제공하지 않으므로, RAG 테스트를 위해 Mock 벡터를 반환합니다.
+// 이 벡터의 차원(768)은 일반적인 임베딩 모델(예: bge-small, text-embedding-3-small)에 맞춰 조정했습니다.
+const MOCK_VECTOR_DIMENSION = 768; 
 
 /**
- * RAG와 결합된 스트리밍 답변 생성
- * @param systemPrompt - 챗봇의 역할 정의
- * @param userQuestion - 사용자의 질문
- * @param context - RAG 검색 결과(지식 청크)
- * @returns 응답 스트림 (ReadableStream)
+ * 🤖 [임시 구현] 사용자 질문을 벡터로 변환
+ * * @param text - 임베딩할 텍스트
+ * @returns Mock 벡터 배열 (number[])
+ */
+export async function createEmbedding(text: string): Promise<number[]> {
+    // ⚠️ 실제 서비스에서는 여기에 OpenAI나 Cohere 등의 임베딩 전용 API 호출 로직이 들어가야 합니다.
+    if (!text || text.length === 0) {
+        return [];
+    }
+    
+    // API 호출 없이 임시(Mock) 벡터 반환
+    console.warn("⚠️ MOCK EMBEDDING: Groq SDK가 임베딩을 지원하지 않아 Mock 벡터를 반환합니다.");
+    return Array.from({ length: MOCK_VECTOR_DIMENSION }, () => Math.random());
+}
+
+
+// --- 2. RAG 기반 스트리밍 답변 생성 ---
+
+const GENERATION_MODEL = 'mixtral-8x7b-32768'; // 빠르고 강력한 Groq 모델 추천
+
+/**
+ * 💬 RAG와 결합된 스트리밍 답변 생성 (rag.ts에서 호출)
+ * * @param systemPrompt - 챗봇의 기본 역할 지침 (rag.ts에서 RAG 컨텍스트 포함)
+ * @param question - 사용자 질문
+ * @returns ReadableStream 객체
  */
 export async function generateStreamingResponse(
-  systemPrompt: string,
-  userQuestion: string,
-  context: string // RAG로 검색된 지식 청크 내용
+    systemPrompt: string, // rag.ts에서 이미 컨텍스트가 포함된 최종 시스템 프롬프트
+    question: string
 ): Promise<ReadableStream> {
-  // 프롬프트 구성: RAG 컨텍스트를 LLM에 전달하는 핵심 부분
-  const fullPrompt = `
-    당신은 사용자 정의 지식 기반 챗봇입니다.
-    다음 'CONTEXT'를 사용하여 질문에 답변하세요.
-    만약 CONTEXT에 답변할 정보가 없다면, "관련 정보를 찾을 수 없습니다."라고 응답하세요.
     
-    --- CONTEXT ---
-    ${context}
-    ---
-    
-    사용자의 질문: ${userQuestion}
-  `;
+    try {
+        const stream = await groq.chat.completions.create({
+            model: GENERATION_MODEL,
+            messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: question },
+            ],
+            temperature: 0.2, 
+            stream: true, 
+        });
+        
+        // Groq SDK 스트림을 Next.js에서 사용할 수 있는 ReadableStream으로 변환
+        const encoder = new TextEncoder();
+        
+        return new ReadableStream({
+            async start(controller) {
+                for await (const chunk of stream) {
+                    const content = chunk.choices[0]?.delta?.content || '';
+                    if (content) {
+                        controller.enqueue(encoder.encode(content));
+                    }
+                }
+                controller.close();
+            },
+        }) as ReadableStream;
 
-  const stream = await groq.chat.completions.create({
-    model: GENERATION_MODEL,
-    messages: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: fullPrompt },
-    ],
-    temperature: 0.2, // 답변의 일관성을 위해 낮은 온도 설정
-    stream: true, // 스트리밍 응답 활성화
-  });
-  
-  // Groq SDK 스트림을 Node.js/Web API의 ReadableStream으로 변환하여 Next.js 라우터에 전달
-  return stream as unknown as ReadableStream;
+    } catch (error) {
+        console.error('Groq Streaming Error:', error);
+        throw new Error('Groq API 응답을 생성할 수 없습니다. (API 키, 네트워크 확인)');
+    }
 }
