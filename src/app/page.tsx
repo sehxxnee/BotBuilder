@@ -1,5 +1,3 @@
-// src/app/page.tsx
-
 'use client';
 
 import { ChatbotCreator } from '@/features/chatbot-builder/ChatbotCreator'; // 🚨 새로운 경로에서 import

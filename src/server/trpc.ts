@@ -3,17 +3,18 @@
 import { initTRPC, TRPCError } from '@trpc/server'; // TRPCError import 추가
 import superjson from 'superjson';
 import { ZodError } from 'zod';
-import { prisma } from '@/server/db'; 
+import { getPrismaClient } from '@/server/db'; 
 import { redis, checkRateLimit } from '@/server/services/redis'; // checkRateLimit import 추가
 import { r2Client } from '@/server/services/r2'; 
 
-//tRPC 컨텍스트 초기화 ->  ctx 만들어내는 공장
+//tRPC 컨텍스트 초기화 ->  ctx 만들어내는 공장
 export const createTRPCContext = (opts: { headers: Headers }) => {
 	// 여기서 모든 백엔드 자원들을 반환하여, 모든 tRPC 프로시저(API 함수)에서 
 	// ctx.prisma, ctx.redis, ctx.r2Client 로 접근할 수 있게 함.
+	// 개발 환경에서는 항상 최신 DATABASE_URL을 사용하는 Prisma Client 반환
 	return {
 		headers: opts.headers,
-		prisma, 
+		prisma: getPrismaClient(), 
 		redis, 
 		r2Client, 
 	};
@@ -48,14 +49,22 @@ const t = initTRPC.context<Context>().create({
 const rateLimitMiddleware = t.middleware(async ({ ctx, next, path }) => {
 	// LLM 호출이 많은 'rag.answerQuestion'에 대해서만 속도 제한 적용
 	if (path === 'rag.answerQuestion') { 
-		const ip = ctx.headers.get('x-forwarded-for') || '127.0.0.1';  
-		const isAllowed = await checkRateLimit(ip);
+		try {
+			const ip = ctx.headers.get('x-forwarded-for') || '127.0.0.1';  
+			const isAllowed = await checkRateLimit(ip);
 
-		if (!isAllowed) {
-			throw new TRPCError({
-				code: 'TOO_MANY_REQUESTS',
-				message: 'API 요청 한도를 초과했습니다. 잠시 후 다시 시도해 주세요.',
-			});
+			if (!isAllowed) {
+				throw new TRPCError({
+					code: 'TOO_MANY_REQUESTS',
+					message: 'API 요청 한도를 초과했습니다. 잠시 후 다시 시도해 주세요.',
+				});
+			}
+		} catch (error) {
+			// TRPCError는 그대로 throw, 다른 오류는 로그만 기록하고 진행
+			if (error instanceof TRPCError) {
+				throw error;
+			}
+			console.error('[Rate Limit Middleware] 오류 발생, rate limiting을 건너뜁니다:', error);
 		}
 	}
 	

@@ -12,15 +12,17 @@ export function TRPCProvider({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(() => new QueryClient());
   
   // tRPC 클라이언트 설정
+  // tRPC v11에서는 transformer를 링크 레벨에 설정해야 함
   const [trpcClient] = useState(() =>
     api.createClient({
       links: [
         httpBatchLink({
           // Next.js API 엔드포인트를 가리킵니다.
-          url: '/api/trpc', 
+          url: '/api/trpc',
+          // tRPC v11에서는 transformer를 링크 레벨에 설정
+          transformer: superjson,
         }),
-      ], 
-      transformer: superjson, 
+      ],
     })
   );
 

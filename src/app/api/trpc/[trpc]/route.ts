@@ -4,38 +4,73 @@ import { fetchRequestHandler } from '@trpc/server/adapters/fetch';
 import { appRouter } from '@/server/routers';
 import { createTRPCContext } from '@/server/trpc';
 
-import { ReadableStream } from 'stream/web';
-
-const handler = (req: Request) =>
-  fetchRequestHandler({
-    endpoint: '/api/trpc',
-    req,
-    router: appRouter,
-    createContext: createTRPCContext,
-
-    responseMeta: ({ data, errors, type }) => {
-        // 'mutation' 타입의 요청에서 데이터가 ReadableStream 인스턴스인 경우를 감지
-        if (type === 'mutation' && data instanceof ReadableStream) {
-            // ReadableStream이 감지되면, Next.js의 Response 객체로 스트림을 반환합니다.
-            // HTTP 상태 코드 200과 Content-Type을 'text/plain'으로 설정하여 스트리밍을 처리합니다.
-            return {
-                status: 200,
-                headers: {
-                    'Content-Type': 'text/plain; charset=utf-8',
-                    'Transfer-Encoding': 'chunked', // 스트리밍 응답임을 명시
-                },
-                body: data, // 스트림 자체를 응답 본문으로 전달
-            };
+const handler = async (req: Request) => {
+  try {
+    const response = await fetchRequestHandler({
+      endpoint: '/api/trpc',
+      req,
+      router: appRouter,
+      createContext: async (opts) => {
+        try {
+          return createTRPCContext({ headers: opts.req.headers });
+        } catch (error) {
+          console.error('[createContext] 컨텍스트 생성 오류:', error);
+          console.error('[createContext] 오류 스택:', error instanceof Error ? error.stack : '스택 없음');
+          // 컨텍스트 생성 실패 시에도 기본 컨텍스트 반환 시도
+          return createTRPCContext({ headers: opts.req.headers });
         }
-        
-        // 스트리밍이 아닌 일반적인 tRPC 요청(JSON 응답)은 기본 처리
-        return {}; 
-    },
+      },
+      // tRPC v11에서는 transformer를 명시적으로 설정하지 않아도 서버의 transformer를 사용
+      // 하지만 명시적으로 설정하면 더 안전함
+      onError({ error, path, type, input }) {
+        console.error(`[tRPC 오류] [${path}][${type}]:`, error);
+        console.error('[tRPC 오류] 스택:', error instanceof Error ? error.stack : '스택 없음');
+        console.error('[tRPC 오류] 입력값:', input);
+        if (error.cause) {
+          console.error('[tRPC 오류] 원인:', error.cause);
+        }
+      },
+    });
     
-    // 스트리밍 응답 본문을 직접 처리하므로, 기본 응답 로직을 비활성화
-    // (responseMeta에서 body를 반환하면 tRPC의 기본 로직을 오버라이드합니다.)
-
-  });
+    // Response가 HTML인 경우 (에러 페이지) JSON으로 변환
+    if (response instanceof Response) {
+      const contentType = response.headers.get('content-type');
+      if (contentType?.includes('text/html')) {
+        // Response를 복제하여 text를 읽어도 원본을 사용할 수 있도록 함
+        const clonedResponse = response.clone();
+        const text = await clonedResponse.text();
+        console.error('[tRPC 핸들러] HTML 응답 감지 (에러 페이지):', text.substring(0, 500));
+        return new Response(
+          JSON.stringify({
+            error: 'Internal Server Error',
+            message: '서버에서 에러가 발생했습니다. 서버 로그를 확인해주세요.',
+            details: process.env.NODE_ENV === 'development' ? text.substring(0, 1000) : undefined,
+          }),
+          {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+      }
+    }
+    
+    return response;
+  } catch (error) {
+    console.error('[tRPC 핸들러] 최상위 오류:', error);
+    console.error('[tRPC 핸들러] 오류 스택:', error instanceof Error ? error.stack : '스택 없음');
+    return new Response(
+      JSON.stringify({
+        error: 'Internal Server Error',
+        message: error instanceof Error ? error.message : '알 수 없는 오류',
+        stack: process.env.NODE_ENV === 'development' && error instanceof Error ? error.stack : undefined,
+      }),
+      {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+  }
+};
 
 export { handler as GET, handler as POST };
 

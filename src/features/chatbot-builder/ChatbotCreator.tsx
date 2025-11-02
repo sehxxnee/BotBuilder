@@ -3,7 +3,6 @@
 
 import React, { useState, FormEvent, ChangeEvent } from 'react';
 import { api } from '@/app/trpc/client'; // tRPC API 훅 import
-import superjson from 'superjson'; // tRPC 클라이언트 설정에 필요 (Provider.tsx에서 이미 사용됨)
 
 interface ChatbotCreatorProps {
     onChatbotCreated: (chatbotId: string) => void;
@@ -21,7 +20,8 @@ export function ChatbotCreator({ onChatbotCreated }: ChatbotCreatorProps) {
     const processFileMutation = api.rag.processFile.useMutation();
 
     // 모든 뮤테이션의 로딩 상태를 통합하여 버튼 비활성화에 사용
-    const isLoading = createChatbotMutation.isLoading || getUploadUrlMutation.isLoading || processFileMutation.isLoading;
+    // tRPC v11에서는 isLoading 대신 isPending 사용
+    const isLoading = createChatbotMutation.isPending || getUploadUrlMutation.isPending || processFileMutation.isPending;
 
 
     const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
@@ -86,9 +86,16 @@ export function ChatbotCreator({ onChatbotCreated }: ChatbotCreatorProps) {
             setStatus(`✅ 챗봇 생성 및 학습 작업 성공적으로 시작됨! 파일이 학습되는 데 시간이 걸릴 수 있습니다.`);
 
         } catch (error) {
-            console.error(error);
+            console.error('챗봇 생성 오류:', error);
+            
+            // tRPC 오류인 경우 더 자세한 정보 출력
+            if (error && typeof error === 'object' && 'data' in error) {
+                console.error('tRPC 오류 상세:', error);
+            }
+            
             // 오류 발생 시 챗봇과 파일 데이터를 정리하는 추가 로직 필요
-            setStatus(`❌ 오류 발생: ${error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.'}`);
+            const errorMessage = error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.';
+            setStatus(`❌ 오류 발생: ${errorMessage}`);
         }
     };
 

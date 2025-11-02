@@ -1,8 +1,6 @@
-// src/features/real-time-chat/RealTimeChat.tsx
-'use client'; // 이 컴포넌트가 클라이언트에서 실행됨을 명시
+'use client';  
 
 import React, { useState, FormEvent, useRef, useEffect } from 'react';
-import { api } from '@/app/trpc/client';
 import superjson from 'superjson';
 
 interface Message {
@@ -60,9 +58,8 @@ export function RealTimeChat({ chatbotId, chatbotName }: RealTimeChatProps) {
         setIsStreaming(true);
 
         try {
-            // tRPC 엔드포인트에 직접 fetch 요청 (스트리밍 응답 처리)
-            // tRPC는 SuperJSON을 사용하여 직렬화하므로 동일한 형식으로 전송
-            const response = await fetch('/api/trpc/rag.answerQuestion', {
+            // 별도의 스트리밍 API 엔드포인트 사용 (tRPC 변환 오류를 피하기 위해)
+            const response = await fetch('/api/stream/answer', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
