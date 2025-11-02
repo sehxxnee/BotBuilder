@@ -60,11 +60,11 @@ const rateLimitMiddleware = t.middleware(async ({ ctx, next, path }) => {
 				});
 			}
 		} catch (error) {
-			// TRPCError는 그대로 throw, 다른 오류는 로그만 기록하고 진행
+			// TRPCError는 그대로 throw, 다른 오류는 조용히 처리하고 진행
 			if (error instanceof TRPCError) {
 				throw error;
 			}
-			console.error('[Rate Limit Middleware] 오류 발생, rate limiting을 건너뜁니다:', error);
+			// 오류 발생 시 rate limiting을 건너뛰고 진행
 		}
 	}
 	

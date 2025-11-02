@@ -10,9 +10,6 @@ const globalForRedis = global as unknown as { redis: Redis | undefined };
 const REDIS_URL = process.env.UPSTASH_REDIS_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_TOKEN;
 
-if (!REDIS_URL || !REDIS_TOKEN) {
-  console.warn('⚠️ UPSTASH_REDIS_URL 또는 UPSTASH_REDIS_TOKEN이 설정되지 않았습니다.');
-}
  
 export const redis =
   globalForRedis.redis ||
@@ -24,7 +21,6 @@ export const redis =
     // 연결 실패 시 재시도 설정
     retryStrategy: (times) => {
       if (times > 3) {
-        console.error('[Redis] 연결 재시도 실패');
         return null; // 재시도 중단
       }
       return Math.min(times * 200, 2000); // 최대 2초 대기
@@ -32,8 +28,8 @@ export const redis =
   });
 
 // Redis 연결 오류 처리
-redis.on('error', (err) => {
-  console.error('[Redis] 연결 오류:', err);
+redis.on('error', () => {
+  // 에러는 조용히 처리
   });
  
 if (process.env.NODE_ENV !== 'production') { 
@@ -51,7 +47,6 @@ const RATE_LIMIT_MAX_REQUESTS = 10;
 export async function checkRateLimit(key: string): Promise<boolean> {
     // Redis 환경 변수가 없으면 rate limiting을 건너뛰고 허용
     if (!REDIS_URL || !REDIS_TOKEN) {
-        console.warn('[Rate Limit] Redis가 설정되지 않아 rate limiting을 건너뜁니다.');
         return true; // Redis가 없으면 기본적으로 허용
     }
 
@@ -67,7 +62,6 @@ export async function checkRateLimit(key: string): Promise<boolean> {
         
         // results가 null이면 Redis 연결 실패
         if (!results) {
-            console.warn('[Rate Limit] Redis 연결 실패, rate limiting을 건너뜁니다.');
             return true; // 연결 실패 시 허용
         }
     
@@ -81,8 +75,7 @@ export async function checkRateLimit(key: string): Promise<boolean> {
 
     return true; // 허용
     } catch (error) {
-        // Redis 오류 발생 시 로그 기록하고 기본적으로 허용
-        console.error('[Rate Limit] Redis 오류 발생, rate limiting을 건너뜁니다:', error);
+        // Redis 오류 발생 시 기본적으로 허용
         return true; // 오류 발생 시 허용
     }
 }

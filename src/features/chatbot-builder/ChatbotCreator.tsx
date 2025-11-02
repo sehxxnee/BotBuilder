@@ -16,12 +16,12 @@ export function ChatbotCreator({ onChatbotCreated }: ChatbotCreatorProps) {
 
     // --- tRPC 뮤테이션 훅 정의 ---
     const createChatbotMutation = api.rag.createChatbot.useMutation();
-    const getUploadUrlMutation = api.rag.getUploadUrl.useMutation();
+    const uploadFileMutation = api.rag.uploadFile.useMutation();
     const processFileMutation = api.rag.processFile.useMutation();
 
     // 모든 뮤테이션의 로딩 상태를 통합하여 버튼 비활성화에 사용
     // tRPC v11에서는 isLoading 대신 isPending 사용
-    const isLoading = createChatbotMutation.isPending || getUploadUrlMutation.isPending || processFileMutation.isPending;
+    const isLoading = createChatbotMutation.isPending || uploadFileMutation.isPending || processFileMutation.isPending;
 
 
     const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
@@ -54,28 +54,29 @@ export function ChatbotCreator({ onChatbotCreated }: ChatbotCreatorProps) {
             chatbotId = newChatbot.id;
             onChatbotCreated(chatbotId); // 생성 후 메인 페이지에 ID 전달
 
-            // 2. R2 업로드 URL 요청 (Presigned URL 발급)
-            setStatus('2/4. R2 업로드 URL 요청 중...');
-            const { uploadUrl, fileKey } = await getUploadUrlMutation.mutateAsync({
+            // 2. 파일을 Base64로 변환
+            setStatus('2/4. 파일 준비 중...');
+            const fileBase64 = await new Promise<string>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => {
+                    // data:application/...;base64,XXXXXXXX 형식에서 base64 부분만 추출
+                    const result = reader.result as string;
+                    const base64Data = result.split(',')[1];
+                    resolve(base64Data);
+                };
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+
+            // 3. 백엔드를 통한 파일 업로드 (CORS 문제 회피)
+            setStatus('3/4. 파일 Cloudflare R2에 업로드 중...');
+            const { fileKey } = await uploadFileMutation.mutateAsync({
                 fileName: file.name,
                 fileType: file.type,
+                fileData: fileBase64,
             });
 
-            // 3. 🚨 클라이언트가 R2에 직접 파일 업로드 (PUT 요청)
-            setStatus('3/4. 파일 Cloudflare R2에 직접 업로드 중...');
-            const uploadResponse = await fetch(uploadUrl, {
-                method: 'PUT',
-                body: file,
-                headers: {
-                    'Content-Type': file.type,
-                },
-            });
-
-            if (!uploadResponse.ok) {
-                throw new Error(`R2 업로드 실패: ${uploadResponse.statusText}`);
-            }
-
-            // 4. 🚨 비동기 파일 처리 큐에 등록 (Redis Queue 사용)
+            // 4. 비동기 파일 처리 큐에 등록 (Redis Queue 사용)
             setStatus('4/4. 파일 처리 작업을 큐에 등록 중...');
             await processFileMutation.mutateAsync({
                 chatbotId,

@@ -1,9 +1,8 @@
 import { z } from 'zod';
 import { createTRPCRouter, publicProcedure } from '@/server/trpc';
 import { generateStreamingResponse, createEmbedding } from '@/server/services/groq';
-import { getPresignedUploadUrl } from '@/server/services/r2';
+import { getPresignedUploadUrl, uploadFileToR2 } from '@/server/services/r2';
 import { TRPCError } from '@trpc/server';
-import { PrismaClientKnownRequestError, PrismaClientInitializationError } from '@prisma/client/runtime/library';
 
 // --- 1. 입력 유효성 검사 스키마 (Zod) ---
 const CreateChatbotInput = z.object({
@@ -37,136 +36,18 @@ const GetUploadUrlInput = z.object({
 // --- 2. RAG 라우터 정의 ---                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  
 export const ragRouter = createTRPCRouter({
 
-    // A. 챗봇 생성 (Mutation) - 기존 코드 유지
+    // A. 챗봇 생성 (Mutation)
     createChatbot: publicProcedure
         .input(CreateChatbotInput)
         .mutation(async ({ ctx, input }) => {
-            try {
-                console.log('[createChatbot] 챗봇 생성 시작:', input.name);
-                
-                // 현재 DATABASE_URL 확인 (비밀번호 제외)
-                const dbUrl = process.env.DATABASE_URL;
-                if (dbUrl) {
-                    const maskedUrl = dbUrl.replace(/:[^:@]+@/, ':****@');
-                    console.log('[createChatbot] 현재 DATABASE_URL:', maskedUrl);
-                    
-                    // 사용자명 형식 확인
-                    const userMatch = dbUrl.match(/postgresql:\/\/([^:]+):/);
-                    if (userMatch) {
-                        const username = userMatch[1];
-                        console.log('[createChatbot] 현재 사용자명:', username);
-                        if (!username.includes('postgres.lbrpzmzoqprypacgmwnn')) {
-                            console.error('❌ 사용자명 형식 오류! 올바른 형식: postgres.lbrpzmzoqprypacgmwnn');
-                            console.error('   현재:', username);
-                        }
-                    }
-                }
-                
-                // 쿼리 실행 직전 DATABASE_URL 최종 확인
-                const finalDbUrl = process.env.DATABASE_URL || '';
-                if (finalDbUrl) {
-                    const maskedUrl = finalDbUrl.replace(/:[^:@]+@/, ':****@');
-                    console.log('[createChatbot] 쿼리 실행 직전 DATABASE_URL:', maskedUrl);
-                    
-                    const userMatch = finalDbUrl.match(/postgresql:\/\/([^:]+):/);
-                    const finalUsername = userMatch ? userMatch[1] : '';
-                    console.log('[createChatbot] 쿼리 실행 직전 사용자명:', finalUsername);
-                    
-                    if (finalUsername !== 'postgres.lbrpzmzoqprypacgmwnn') {
-                        console.error('❌❌❌ 쿼리 실행 직전 사용자명이 여전히 잘못되었습니다!');
-                        console.error('   현재:', finalUsername);
-                        console.error('   올바른 형식: postgres.lbrpzmzoqprypacgmwnn');
-                        console.error('   전체 URL:', maskedUrl);
-                        console.error('   ⚠️ DATABASE_URL 자동 변환이 작동하지 않았습니다.');
-                        console.error('   💡 .env 파일의 DATABASE_URL을 직접 확인하세요.');
-                    }
-                }
-                
-                // Prisma 연결 테스트 (간단한 쿼리로 연결 확인)
-                try {
-                    console.log('[createChatbot] Prisma 연결 테스트 시작...');
-                    await ctx.prisma.$queryRaw`SELECT 1 as test`;
-                    console.log('[createChatbot] ✅ Prisma 연결 성공');
-                } catch (testError) {
-                    console.error('[createChatbot] ❌ Prisma 연결 테스트 실패:', testError);
-                    const errorDetails: {
-                        message: string;
-                        code?: string;
-                        meta?: unknown;
-                    } = {
-                        message: testError instanceof Error ? testError.message : String(testError),
-                    };
-                    if (testError instanceof PrismaClientKnownRequestError) {
-                        errorDetails.code = testError.code;
-                        errorDetails.meta = testError.meta;
-                    } else if (testError instanceof PrismaClientInitializationError) {
-                        errorDetails.code = testError.errorCode;
-                    } else if (testError && typeof testError === 'object' && 'code' in testError) {
-                        errorDetails.code = String(testError.code);
-                    }
-                    if (testError && typeof testError === 'object' && 'meta' in testError && !(testError instanceof PrismaClientInitializationError)) {
-                        errorDetails.meta = testError.meta;
-                    }
-                    console.error('[createChatbot] 연결 테스트 오류 상세:', errorDetails);
-                    // 연결 테스트 실패 시에도 실제 쿼리 시도 (혹시 모를 경우 대비)
-                }
-                
-                console.log('[createChatbot] 챗봇 생성 쿼리 실행 시작...');
-                const newChatbot = await ctx.prisma.chatbot.create({
-                    data: {
-                        name: input.name,
-                        systemPrompt: input.systemPrompt,
-                    },
-                });
-                
-                console.log('[createChatbot] 챗봇 생성 완료:', newChatbot.id);
-                
-                // SuperJSON이 Date 객체를 자동으로 직렬화하므로 그대로 반환
-                // Prisma의 DateTime은 JavaScript Date 객체로 변환되므로 SuperJSON이 처리 가능
-                return newChatbot;
-            } catch (error) {
-                // 실제 Prisma 오류를 상세하게 로깅
-                const errorDetails: {
-                    error: unknown;
-                    message: string;
-                    code?: string;
-                    meta?: unknown;
-                    stack?: string;
-                } = {
-                    error,
-                    message: error instanceof Error ? error.message : String(error),
-                    stack: error instanceof Error ? error.stack : undefined,
-                };
-                if (error instanceof PrismaClientKnownRequestError) {
-                    errorDetails.code = error.code;
-                    errorDetails.meta = error.meta;
-                } else if (error instanceof PrismaClientInitializationError) {
-                    errorDetails.code = error.errorCode;
-                } else if (error && typeof error === 'object' && 'code' in error) {
-                    errorDetails.code = String(error.code);
-                }
-                if (error && typeof error === 'object' && 'meta' in error && !(error instanceof PrismaClientInitializationError)) {
-                    errorDetails.meta = error.meta;
-                }
-                console.error('[createChatbot] Prisma 오류 상세:', errorDetails);
-                
-                // DATABASE_URL도 로깅
-                const dbUrl = process.env.DATABASE_URL;
-                if (dbUrl) {
-                    const maskedUrl = dbUrl.replace(/:[^:@]+@/, ':****@');
-                    console.error('[createChatbot] 오류 발생 시 DATABASE_URL:', maskedUrl);
-                    
-                    // 사용자명 형식 확인
-                    const userMatch = dbUrl.match(/postgresql:\/\/([^:]+):/);
-                    if (userMatch) {
-                        console.error('[createChatbot] 현재 사용자명:', userMatch[1]);
-                        console.error('[createChatbot] 올바른 형식: postgres.lbrpzmzoqprypacgmwnn');
-                    }
-                }
-                
-                // 원본 오류를 그대로 throw (메시지 덮어쓰기 제거)
-                throw error;
-            }
+            const newChatbot = await ctx.prisma.chatbot.create({
+                data: {
+                    name: input.name,
+                    systemPrompt: input.systemPrompt,
+                },
+            });
+            
+            return newChatbot;
         }),
 
     // B. RAG 기반 답변 스트리밍 (Mutation) - 기존 코드 유지
@@ -229,7 +110,7 @@ export const ragRouter = createTRPCRouter({
             return stream;
         }),
 
-    // 🚨 C. 파일 업로드를 위한 Presigned URL 발급 (새로운 기능) 🚨
+    // 🚨 C-1. 파일 업로드를 위한 Presigned URL 발급 (CORS 설정 시 사용)
     getUploadUrl: publicProcedure
         .input(GetUploadUrlInput)
         .mutation(async ({ input }) => {
@@ -244,6 +125,39 @@ export const ragRouter = createTRPCRouter({
                 uploadUrl: url,
                 fileKey: fileKey, // DB에 이 키를 저장하여 나중에 파일을 찾을 때 사용
             };
+        }),
+
+    // 🚨 C-2. 백엔드를 통한 파일 업로드 (CORS 문제 회피)
+    uploadFile: publicProcedure
+        .input(z.object({
+            fileName: z.string().min(1),
+            fileType: z.string().refine(
+                (val) => val.startsWith('application/') || val.startsWith('text/'),
+                { message: "유효한 문서 MIME 타입(application/pdf, text/plain 등)이 필요합니다." }
+            ),
+            fileData: z.string(), // Base64 인코딩된 파일 데이터
+        }))
+        .mutation(async ({ input }) => {
+            try {
+                // Base64 데이터를 Buffer로 변환
+                const fileBuffer = Buffer.from(input.fileData, 'base64');
+                
+                // 파일 키 생성
+                const fileKey = `rag-files/${Date.now()}-${input.fileName}`;
+                
+                // R2에 직접 업로드
+                await uploadFileToR2(fileKey, fileBuffer, input.fileType);
+                
+                return {
+                    fileKey,
+                    success: true,
+                };
+            } catch (error) {
+                throw new TRPCError({
+                    code: 'INTERNAL_SERVER_ERROR',
+                    message: `파일 업로드 실패: ${error instanceof Error ? error.message : '알 수 없는 오류'}`,
+                });
+            }
         }),
 
         // D. 파일 처리 요청을 받아 큐에 작업을 추가 (비동기 워크플로우 시작) 🚨 새로운 기능 🚨

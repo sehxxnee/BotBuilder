@@ -28,7 +28,6 @@ export async function createEmbedding(text: string): Promise<number[]> {
     }
     
     // API 호출 없이 임시(Mock) 벡터 반환
-    console.warn("⚠️ MOCK EMBEDDING: Groq SDK가 임베딩을 지원하지 않아 Mock 벡터를 반환합니다.");
     return Array.from({ length: MOCK_VECTOR_DIMENSION }, () => Math.random());
 }
 
@@ -82,7 +81,6 @@ export async function generateStreamingResponse(
         }) as ReadableStream;
 
     } catch (error) {
-        console.error('Groq Streaming Error:', error);
         throw new Error('Groq API 응답을 생성할 수 없습니다. (API 키, 네트워크 확인)');
     }
 }

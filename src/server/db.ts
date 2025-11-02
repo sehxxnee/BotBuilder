@@ -13,30 +13,20 @@ function fixDatabaseUrl(): void {
   const originalUrl = process.env.DATABASE_URL || '';
   
   if (!originalUrl) {
-    console.warn('⚠️ DATABASE_URL이 설정되지 않았습니다.');
     return;
   }
-  
-  console.log('[fixDatabaseUrl] 원본 URL 확인:', originalUrl.replace(/:[^:@]+@/, ':****@'));
   
   // URL 파싱: 프로토콜, 사용자명, 비밀번호, 호스트, 포트, 경로, 쿼리 파라미터
   const urlPattern = /^postgresql:\/\/([^:]+):([^@]+)@([^:\/]+)(?::(\d+))?(\/[^?]*)?(\?.*)?$/;
   const match = originalUrl.match(urlPattern);
   
   if (!match) {
-    console.warn('⚠️ DATABASE_URL 형식이 올바르지 않습니다.');
-    console.warn('   현재 URL:', originalUrl.replace(/:[^:@]+@/, ':****@'));
     return;
   }
   
   const [, originalUser, password, host, port, path, queryParams] = match;
   const databasePath = path || '/postgres';
   const portStr = port || '5432';
-  
-  console.log('[fixDatabaseUrl] 파싱 결과:');
-  console.log('   사용자명:', originalUser);
-  console.log('   호스트:', host);
-  console.log('   포트:', portStr);
   
   // Connection Pooler 형식으로 변환 필요 여부 확인
   const PROJECT_ID = 'lbrpzmzoqprypacgmwnn';
@@ -63,7 +53,6 @@ function fixDatabaseUrl(): void {
   if (originalUser !== CORRECT_USER) {
     // postgres만 있거나 다른 형식이면 수정
     if (originalUser === 'postgres' || !originalUser.includes(PROJECT_ID)) {
-      console.log('[fixDatabaseUrl] 사용자명 수정 필요:', originalUser, '→', CORRECT_USER);
       correctedUser = CORRECT_USER;
       needsFix = true;
     }
@@ -71,7 +60,6 @@ function fixDatabaseUrl(): void {
   
   // 2. 호스트 확인 및 수정 (db.*.supabase.co → aws-0-ap-northeast-2.pooler.supabase.com)
   if (host.includes('.supabase.co') && !host.includes('pooler.supabase.com')) {
-    console.log('[fixDatabaseUrl] 호스트 수정 필요:', host, '→', CORRECT_HOST);
     correctedHost = CORRECT_HOST;
     needsFix = true;
   }
@@ -89,10 +77,6 @@ function fixDatabaseUrl(): void {
   
   // 이미 올바른 형식이면 수정하지 않음
   if (!needsFix && originalUser === CORRECT_USER && host.includes('pooler.supabase.com')) {
-    console.log('✅ DATABASE_URL이 올바른 형식입니다.');
-    console.log('   사용자명:', originalUser);
-    console.log('   호스트:', host);
-    console.log('   포트:', portStr);
     return;
   }
   
@@ -119,26 +103,8 @@ function fixDatabaseUrl(): void {
   // 올바른 URL 생성
   const correctUrl = `postgresql://${correctedUser}:${password}@${correctedHost}:${correctedPort}${databasePath}${finalQueryParams}`;
   
-  // 형식이 다르면 수정
-  console.log('🔧 DATABASE_URL을 Connection Pooler 형식으로 수정합니다.');
-  console.log('   원본:', originalUrl.replace(/:[^:@]+@/, ':****@'));
-  console.log('   수정:', correctUrl.replace(/:[^:@]+@/, ':****@'));
-  console.log('   사용자명:', originalUser, '→', correctedUser);
-  console.log('   호스트:', host, '→', correctedHost);
-  console.log('   포트:', portStr, '→', correctedPort);
-  
   // 환경 변수 직접 수정 (Prisma Client 초기화 전에 반드시 실행)
   process.env.DATABASE_URL = correctUrl;
-  
-  // 수정 확인
-  const verifyUrl = process.env.DATABASE_URL || '';
-  const verifyMatch = verifyUrl.match(/postgresql:\/\/([^:]+):/);
-  const verifyUser = verifyMatch ? verifyMatch[1] : '';
-  console.log('[fixDatabaseUrl] 수정 확인 - 현재 사용자명:', verifyUser);
-  
-  if (verifyUser !== CORRECT_USER) {
-    console.error('❌ [fixDatabaseUrl] 경고: 환경 변수 수정이 제대로 반영되지 않았습니다!');
-  }
 }
 
 // DATABASE_URL을 가져오는 함수 (수정된 URL 반환)
@@ -171,12 +137,6 @@ export const prisma = (() => {
     // DATABASE_URL을 다시 확인하고 수정 (Prisma Client 생성 직전)
     const databaseUrl = getDatabaseUrl();
     
-    // 수정된 DATABASE_URL 확인
-    if (databaseUrl) {
-      const maskedUrl = databaseUrl.replace(/:[^:@]+@/, ':****@');
-      console.log('[Prisma Client] 생성 시 DATABASE_URL:', maskedUrl);
-    }
-    
     // 새 Prisma Client 생성 - 명시적으로 DATABASE_URL 전달
     return new PrismaClient({
       datasources: {
@@ -184,7 +144,7 @@ export const prisma = (() => {
           url: databaseUrl,
         },
       },
-      log: ['query', 'error', 'warn'],
+      log: ['error'],
     });
   }
   
@@ -210,19 +170,6 @@ if (process.env.NODE_ENV !== 'production') {
 // Prisma 연결 오류를 처리하되, 초기화 시점에는 연결을 시도하지 않음
 // 실제 쿼리 실행 시점에 연결이 이루어짐
 
-// 개발 환경에서 DATABASE_URL이 변경되었을 때 Prisma Client를 재생성하는 함수
-function ensureCorrectDatabaseUrl(): void {
-  if (process.env.NODE_ENV === 'development') {
-    const currentUrl = getDatabaseUrl();
-    const userMatch = currentUrl.match(/postgresql:\/\/([^:]+):/);
-    const currentUser = userMatch ? userMatch[1] : '';
-    
-    if (currentUser && currentUser !== 'postgres.lbrpzmzoqprypacgmwnn') {
-      console.warn('⚠️ DATABASE_URL 사용자명이 올바르지 않습니다. Prisma Client 재생성 필요');
-      // Prisma Client 재생성은 다음 요청에서 이루어질 것 (개발 환경에서는 항상 새로 생성됨)
-    }
-  }
-}
 
 // 이 파일의 'prisma' 인스턴스가 이제 '@/server/db' 경로를 통해 가져와집니다.
 // 하지만 개발 환경에서는 항상 최신 DATABASE_URL을 사용하도록 보장
@@ -230,18 +177,6 @@ export function getPrismaClient(): typeof prisma {
   if (process.env.NODE_ENV === 'development') {
     // 개발 환경에서는 매번 최신 DATABASE_URL 확인 및 Prisma Client 재생성
     const databaseUrl = getDatabaseUrl();
-    const maskedUrl = databaseUrl.replace(/:[^:@]+@/, ':****@');
-    
-    // 사용자명 확인
-    const userMatch = databaseUrl.match(/postgresql:\/\/([^:]+):/);
-    const username = userMatch ? userMatch[1] : '';
-    
-    if (username !== 'postgres.lbrpzmzoqprypacgmwnn') {
-      console.error('❌ DATABASE_URL 사용자명 오류!');
-      console.error('   현재:', username);
-      console.error('   올바른 형식: postgres.lbrpzmzoqprypacgmwnn');
-      console.error('   전체 URL:', maskedUrl);
-    }
     
     // Prisma Client를 다시 생성 (항상 최신 DATABASE_URL 사용)
     const newPrisma = new PrismaClient({
@@ -250,7 +185,7 @@ export function getPrismaClient(): typeof prisma {
           url: databaseUrl,
         },
       },
-      log: ['query', 'error', 'warn'],
+      log: ['error'],
     });
     
     return newPrisma;
