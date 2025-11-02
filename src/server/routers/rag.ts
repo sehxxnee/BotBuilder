@@ -1,9 +1,7 @@
-// src/server/routers/rag.ts
-
 import { z } from 'zod';
 import { createTRPCRouter, publicProcedure } from '@/server/trpc';
 import { generateStreamingResponse, createEmbedding } from '@/server/services/groq';
-import { getPresignedUploadUrl } from '@/server/services/r2'; // 🚨 R2 서비스 import 추가 🚨
+import { getPresignedUploadUrl } from '@/server/services/r2';
 import { TRPCError } from '@trpc/server';
 import { Prisma } from '@prisma/client';
 
@@ -16,6 +14,13 @@ const CreateChatbotInput = z.object({
 const AnswerQuestionInput = z.object({
     chatbotId: z.string().cuid(),
     question: z.string().min(5),
+});
+
+// 🚨 새 Input Schema: 파일 처리 요청 🚨
+const ProcessFileInput = z.object({
+    chatbotId: z.string().cuid(),
+    fileKey: z.string().min(1), // R2에 저장된 파일의 고유 키 (getUploadUrl에서 받음)
+    fileName: z.string().min(1),
 });
 
 // 🚨 새 Input Schema: 파일 업로드 요청 🚨
@@ -119,6 +124,43 @@ export const ragRouter = createTRPCRouter({
             return {
                 uploadUrl: url,
                 fileKey: fileKey, // DB에 이 키를 저장하여 나중에 파일을 찾을 때 사용
+            };
+        }),
+
+        // D. 파일 처리 요청을 받아 큐에 작업을 추가 (비동기 워크플로우 시작) 🚨 새로운 기능 🚨
+    processFile: publicProcedure
+        .input(ProcessFileInput)
+        .mutation(async ({ ctx, input }) => {
+            const { fileKey, fileName, chatbotId } = input;
+            const { redis, prisma } = ctx; 
+            const QUEUE_NAME = 'embedding_queue';
+
+            // 1. 챗봇 존재 여부 확인 (보안 및 유효성 검사)
+            const chatbot = await prisma.chatbot.findUnique({
+                where: { id: chatbotId },
+                select: { id: true, name: true },
+            });
+            if (!chatbot) {
+                throw new TRPCError({ code: 'NOT_FOUND', message: 'Chatbot not found.' });
+            }
+
+            // 2. 🚨 Redis 큐에 비동기 작업(Job)을 추가
+            const jobData = { 
+                fileKey, 
+                fileName, 
+                chatbotId,
+                // 작업의 신뢰성을 높이기 위해 타임스탬프 추가
+                timestamp: new Date().toISOString(), 
+            };
+            
+            // Redis List에 Job 데이터를 JSON 문자열로 직렬화하여 푸시
+            // lpush는 큐에 데이터를 추가하는 역할을 합니다.
+            await redis.lpush(QUEUE_NAME, JSON.stringify(jobData)); 
+            
+            // 3. 응답: 클라이언트에게 작업이 성공적으로 시작되었음을 알림
+            return {
+                success: true,
+                message: `'${fileName}' 파일의 학습 작업이 큐에 추가되었습니다. 잠시 후 챗봇 ${chatbot.name}에 반영됩니다.`,
             };
         }),
 });

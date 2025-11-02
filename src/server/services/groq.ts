@@ -39,20 +39,27 @@ const GENERATION_MODEL = 'mixtral-8x7b-32768'; // 빠르고 강력한 Groq 모�
 
 /**
  * 💬 RAG와 결합된 스트리밍 답변 생성 (rag.ts에서 호출)
- * * @param systemPrompt - 챗봇의 기본 역할 지침 (rag.ts에서 RAG 컨텍스트 포함)
+ * @param systemPrompt - 챗봇의 기본 역할 지침
  * @param question - 사용자 질문
+ * @param context - RAG로 검색된 컨텍스트 텍스트
  * @returns ReadableStream 객체
  */
 export async function generateStreamingResponse(
-    systemPrompt: string, // rag.ts에서 이미 컨텍스트가 포함된 최종 시스템 프롬프트
-    question: string
+    systemPrompt: string,
+    question: string,
+    context?: string
 ): Promise<ReadableStream> {
     
     try {
+        // RAG 컨텍스트를 시스템 프롬프트에 포함
+        const finalSystemPrompt = context
+            ? `${systemPrompt}\n\n다음은 사용자 질문에 답변하기 위한 참고 정보입니다:\n\n${context}\n\n위의 정보를 바탕으로 정확하고 도움이 되는 답변을 제공해주세요.`
+            : systemPrompt;
+
         const stream = await groq.chat.completions.create({
             model: GENERATION_MODEL,
             messages: [
-                { role: 'system', content: systemPrompt },
+                { role: 'system', content: finalSystemPrompt },
                 { role: 'user', content: question },
             ],
             temperature: 0.2, 
