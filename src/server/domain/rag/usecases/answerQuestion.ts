@@ -1,5 +1,5 @@
 import { RagRepository } from '../repository';
-import { generateStreamingResponse, createEmbedding } from '@/server/services/groq';
+import { generateStreamingResponse, createEmbedding } from '@/server/infrastructure/llm/groq';
 
 export async function answerQuestionUsecase(repo: RagRepository, params: { chatbotId: string; question: string }) {
   const chatbot = await repo.findChatbotById(params.chatbotId);

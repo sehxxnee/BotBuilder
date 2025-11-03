@@ -4,8 +4,8 @@ import { initTRPC, TRPCError } from '@trpc/server'; // TRPCError import 추가
 import superjson from 'superjson';
 import { ZodError } from 'zod';
 import { getPrismaClient } from '@/server/db'; 
-import { redis, checkRateLimit } from '@/server/services/redis'; // checkRateLimit import 추가
-import { r2Client } from '@/server/services/r2'; 
+import { redis, checkRateLimit } from '@/server/infrastructure/redis/client';
+import { r2Client } from '@/server/infrastructure/r2/client'; 
 
 //tRPC 컨텍스트 초기화 ->  ctx 만들어내는 공장
 export const createTRPCContext = (opts: { headers: Headers }) => {

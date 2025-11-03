@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { createTRPCRouter, publicProcedure } from '@/server/trpc';
-import { getPresignedUploadUrl, uploadFileToR2 } from '@/server/services/r2';
+import { getPresignedUploadUrl, uploadFileToR2 } from '@/server/infrastructure/r2/client';
 import { TRPCError } from '@trpc/server';
 import { RagRepository } from '@/server/domain/rag/repository';
 import { createChatbotUsecase } from '@/server/domain/rag/usecases/createChatbot';
