@@ -3,10 +3,11 @@
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Readable } from 'stream';
+import { env } from '@/server/config/env';
 
 // R2 자격 증명 검증
 function validateR2Credentials() {
-  const accessKeyId = process.env.R2_ACCESS_KEY_ID || '';
+  const accessKeyId = env.R2_ACCESS_KEY_ID || '';
   
   // Access Key ID는 일반적으로 20자 또는 32자입니다 (AWS SDK는 32자를 기대)
   // Secret Access Key는 일반적으로 40자입니다
@@ -28,14 +29,14 @@ try {
 
 export const r2Client = new S3Client({
   region: 'auto',
-  endpoint: process.env.R2_ENDPOINT || '',
+  endpoint: env.R2_ENDPOINT || '',
   credentials: {
-    accessKeyId: process.env.R2_ACCESS_KEY_ID || '',
-    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY || '',
+    accessKeyId: env.R2_ACCESS_KEY_ID || '',
+    secretAccessKey: env.R2_SECRET_ACCESS_KEY || '',
   },
 });
 
-const R2_BUCKET_NAME = process.env.R2_BUCKET_NAME || '';
+const R2_BUCKET_NAME = env.R2_BUCKET_NAME || '';
 
 /**
  * 파일을 업로드할 수 있는 Presigned URL을 생성 

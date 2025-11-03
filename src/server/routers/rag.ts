@@ -1,8 +1,11 @@
 import { z } from 'zod';
 import { createTRPCRouter, publicProcedure } from '@/server/trpc';
-import { generateStreamingResponse, createEmbedding } from '@/server/services/groq';
 import { getPresignedUploadUrl, uploadFileToR2 } from '@/server/services/r2';
 import { TRPCError } from '@trpc/server';
+import { RagRepository } from '@/server/domain/rag/repository';
+import { createChatbotUsecase } from '@/server/domain/rag/usecases/createChatbot';
+import { answerQuestionUsecase } from '@/server/domain/rag/usecases/answerQuestion';
+import { processFileUsecase } from '@/server/domain/rag/usecases/processFile';
 
 // --- 1. 입력 유효성 검사 스키마 (Zod) ---
 const CreateChatbotInput = z.object({
@@ -40,77 +43,23 @@ export const ragRouter = createTRPCRouter({
     createChatbot: publicProcedure
         .input(CreateChatbotInput)
         .mutation(async ({ ctx, input }) => {
-            const newChatbot = await ctx.prisma.chatbot.create({
-                data: {
-                    name: input.name,
-                    systemPrompt: input.systemPrompt,
-                },
-            });
-            
-            return newChatbot;
+            const repo = new RagRepository(ctx.prisma);
+            return createChatbotUsecase(repo, { name: input.name, systemPrompt: input.systemPrompt });
         }),
 
-    // B. RAG 기반 답변 스트리밍 (Mutation) - 기존 코드 유지
+    // B. RAG 기반 답변 스트리밍 (Mutation)
     answerQuestion: publicProcedure
         .input(AnswerQuestionInput)
         .mutation(async ({ ctx, input }) => {
-            const { question, chatbotId } = input;
-            const { prisma } = ctx;
-
-            // 1. 챗봇 정보 로드
-            const chatbot = await prisma.chatbot.findUnique({
-                where: { id: chatbotId },
-            });
-            if (!chatbot) {
+            const repo = new RagRepository(ctx.prisma);
+            try {
+                return await answerQuestionUsecase(repo, { chatbotId: input.chatbotId, question: input.question });
+            } catch (e) {
                 throw new TRPCError({ code: 'NOT_FOUND', message: 'Chatbot not found.' });
             }
-
-            // 2. 🤖 질문 임베딩 생성
-            const questionVector = await createEmbedding(question);
-
-            if (!questionVector || questionVector.length === 0) {
-                const defaultContext = "지식 기반을 로드할 수 없습니다. 관련 파일이 업로드되었는지 확인해주세요.";
-                return generateStreamingResponse(
-                    chatbot.systemPrompt,
-                    question,
-                    defaultContext
-                );
-            }
-
-            // 3. 🔍 pgvector 유사도 검색 (Raw SQL)
-            const vectorString = `[${questionVector.join(',')}]`;
-
-            type ChunkResult = {
-                content: string;
-                similarity: number;
-            };
-
-            const relevantChunks: ChunkResult[] = await prisma.$queryRaw<ChunkResult[]>`
-                SELECT 
-                    content, 
-                    "embedding" <-> ${vectorString}::vector AS similarity
-                FROM "KBChunk"
-                WHERE "chatbotId" = ${chatbotId}
-                ORDER BY similarity ASC 
-                LIMIT 5;
-            `;
-
-            // 4. 컨텍스트 구성
-            const contextText = relevantChunks
-                .map(chunk => chunk.content)
-                .join('\n\n--- 컨텍스트 청크 구분선 ---\n\n');
-
-            // 5. Groq 스트리밍 응답 생성
-            const stream = await generateStreamingResponse(
-                chatbot.systemPrompt,
-                question,
-                contextText
-            );
-
-            return stream;
         }),
 
-    // 🚨 C-1. 파일 업로드를 위한 Presigned URL 발급 (CORS 설정 시 사용)
+    // C-1. 파일 업로드를 위한 Presigned URL 발급 (CORS 설정 시 사용)
     getUploadUrl: publicProcedure
         .input(GetUploadUrlInput)
         .mutation(async ({ input }) => {
@@ -160,40 +109,19 @@ export const ragRouter = createTRPCRouter({
             }
         }),
 
-        // D. 파일 처리 요청을 받아 큐에 작업을 추가 (비동기 워크플로우 시작) 🚨 새로운 기능 🚨
+        // D. 파일 처리 요청을 받아 큐에 작업을 추가 (비동기 워크플로우 시작)
     processFile: publicProcedure
         .input(ProcessFileInput)
         .mutation(async ({ ctx, input }) => {
-            const { fileKey, fileName, chatbotId } = input;
-            const { redis, prisma } = ctx; 
-            const QUEUE_NAME = 'embedding_queue';
-
-            // 1. 챗봇 존재 여부 확인 (보안 및 유효성 검사)
-            const chatbot = await prisma.chatbot.findUnique({
-                where: { id: chatbotId },
-                select: { id: true, name: true },
-            });
-            if (!chatbot) {
+            const repo = new RagRepository(ctx.prisma);
+            try {
+                return await processFileUsecase({ repo, redis: ctx.redis }, {
+                    chatbotId: input.chatbotId,
+                    fileKey: input.fileKey,
+                    fileName: input.fileName,
+                });
+            } catch (e) {
                 throw new TRPCError({ code: 'NOT_FOUND', message: 'Chatbot not found.' });
             }
-
-            // 2. 🚨 Redis 큐에 비동기 작업(Job)을 추가
-            const jobData = { 
-                fileKey, 
-                fileName, 
-                chatbotId,
-                // 작업의 신뢰성을 높이기 위해 타임스탬프 추가
-                timestamp: new Date().toISOString(), 
-            };
-            
-            // Redis List에 Job 데이터를 JSON 문자열로 직렬화하여 푸시
-            // lpush는 큐에 데이터를 추가하는 역할을 합니다.
-            await redis.lpush(QUEUE_NAME, JSON.stringify(jobData)); 
-            
-            // 3. 응답: 클라이언트에게 작업이 성공적으로 시작되었음을 알림
-            return {
-                success: true,
-                message: `'${fileName}' 파일의 학습 작업이 큐에 추가되었습니다. 잠시 후 챗봇 ${chatbot.name}에 반영됩니다.`,
-            };
         }),
 });

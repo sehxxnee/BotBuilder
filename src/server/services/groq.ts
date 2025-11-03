@@ -2,12 +2,13 @@
 
 import Groq from 'groq-sdk';
 import { ReadableStream } from 'stream/web'; // Node.js 환경에서 스트림을 사용하기 위해 필요
+import { env } from '@/server/config/env';
 
 // 🚨 환경 변수 로드 방식 수정: process.env 대신 직접 접근
 // Next.js 환경에서는 process.env가 바로 사용 가능하므로, 
 // Groq 클라이언트가 .env의 GROQ_API_KEY를 직접 읽도록 초기화합니다.
 const groq = new Groq({
-    apiKey: process.env.GROQ_API_KEY, 
+    apiKey: env.GROQ_API_KEY, 
 });
 
 // --- 1. 임베딩 모델 정의 및 Mock 로직 ---

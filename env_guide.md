@@ -47,9 +47,66 @@ R2_BUCKET_NAME=[YOUR-BUCKET-NAME]
 ```
 
 **설정 방법:**
-- Cloudflare R2 대시보드 접속
-- API Tokens에서 Access Key ID와 Secret Access Key 생성
-- Endpoint와 Bucket Name 확인
+
+1. **R2 전용 API 토큰 생성 (권장)**
+   - Cloudflare 대시보드 접속
+   - 왼쪽 메뉴에서 **R2** 선택
+   - **Manage R2 API Tokens** 클릭
+   - **Create API Token** 클릭
+   - 토큰 이름 입력
+   - **Object Read & Write** 권한 선택
+   - 특정 버킷 또는 모든 버킷 선택
+   - **Create API Token** 클릭
+   - Access Key ID와 Secret Access Key는 이 시점에만 표시됩니다. 안전한 곳에 보관하세요!
+
+2. **또는 Account API Token 사용 (대안)**
+   - Cloudflare 대시보드 → 계정 설정 → **API Tokens**
+   - **Create Token** 클릭
+   - 권한 설정에서 **Account → Cloudflare R2 → Edit** 선택
+   - 토큰 생성 및 Access Key ID, Secret Access Key 복사
+
+**주의:**
+- **R2 전용 API 토큰 (R2 > Manage R2 API Tokens)**을 사용하는 것이 **가장 권장됩니다**
+- User API Token은 R2 접근에 사용할 수 없습니다
+- Account API Token도 사용 가능하지만, R2 전용 토큰이 더 제한적이고 안전합니다
+
+**중요:**
+- `R2_ACCESS_KEY_ID`: 일반적으로 **20자 또는 32자**입니다
+- `R2_SECRET_ACCESS_KEY`: 일반적으로 **40자**입니다
+- **Access Key ID와 Secret Access Key는 반드시 같은 API 토큰 쌍이어야 합니다**
+  - 서로 다른 토큰의 Access Key ID와 Secret Access Key를 조합하면 "Access Denied" 오류 발생
+
+**Access Denied 오류 해결:**
+1. Cloudflare R2 대시보드에서 새로운 API 토큰 생성
+   - R2 > Manage R2 API Tokens > Create API Token
+   - **Object Read & Write** 권한 반드시 확인
+2. 생성된 토큰의 Access Key ID와 Secret Access Key를 **함께** `.env` 파일에 복사
+3. 버킷 이름 확인: R2_BUCKET_NAME이 실제 버킷 이름과 정확히 일치하는지 확인
+4. 엔드포인트 확인: `https://[ACCOUNT-ID].r2.cloudflarestorage.com` 형식 확인
+
+**CORS 설정 필수**
+브라우저에서 R2에 직접 파일을 업로드하려면 버킷에 CORS 정책을 설정해야 합니다.
+
+1. Cloudflare R2 대시보드 접속
+2. 버킷 선택 → Settings 탭
+3. CORS Policy 섹션에서 다음 정책 추가:
+
+```json
+[
+  {
+    "AllowedOrigins": ["http://localhost:3000", "https://your-domain.com"],
+    "AllowedMethods": ["PUT", "GET", "HEAD"],
+    "AllowedHeaders": ["*"],
+    "ExposeHeaders": ["ETag"],
+    "MaxAgeSeconds": 3600
+  }
+]
+```
+
+**설정 예시:**
+- `AllowedOrigins`: 개발 환경(`http://localhost:3000`)과 프로덕션 도메인 추가
+- `AllowedMethods`: `PUT`, `GET`, `HEAD`포함
+- `AllowedHeaders`: `*` 또는 필요한 헤더만 지정
 
 ### 4. Upstash Redis 설정
 

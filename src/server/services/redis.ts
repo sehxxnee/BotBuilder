@@ -3,12 +3,13 @@
 
 
 import { Redis } from 'ioredis';
+import { env } from '@/server/config/env';
  
 const globalForRedis = global as unknown as { redis: Redis | undefined };  
 
 // 환경 변수 확인
-const REDIS_URL = process.env.UPSTASH_REDIS_URL;
-const REDIS_TOKEN = process.env.UPSTASH_REDIS_TOKEN;
+const REDIS_URL = env.UPSTASH_REDIS_URL;
+const REDIS_TOKEN = env.UPSTASH_REDIS_TOKEN;
 
  
 export const redis =
@@ -74,7 +75,7 @@ export async function checkRateLimit(key: string): Promise<boolean> {
     }
 
     return true; // 허용
-    } catch (error) {
+    } catch {
         // Redis 오류 발생 시 기본적으로 허용
         return true; // 오류 발생 시 허용
     }
