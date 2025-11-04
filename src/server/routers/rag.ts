@@ -6,6 +6,9 @@ import { RagRepository } from '@/server/domain/rag/repository';
 import { createChatbotUsecase } from '@/server/domain/rag/usecases/createChatbot';
 import { answerQuestionUsecase } from '@/server/domain/rag/usecases/answerQuestion';
 import { processFileUsecase } from '@/server/domain/rag/usecases/processFile';
+import { getChatbotsUsecase } from '@/server/domain/rag/usecases/getChatbots';
+import { getChatbotDetailsUsecase } from '@/server/domain/rag/usecases/getChatbotDetails';
+import { getChatHistoryUsecase } from '@/server/domain/rag/usecases/getChatHistory';
 
 // --- 1. 입력 유효성 검사 스키마 (Zod) ---
 const CreateChatbotInput = z.object({
@@ -16,6 +19,15 @@ const CreateChatbotInput = z.object({
 const AnswerQuestionInput = z.object({
     chatbotId: z.string().cuid(),
     question: z.string().min(5),
+});
+
+const GetChatbotDetailsInput = z.object({
+    chatbotId: z.string().cuid(),
+});
+
+const GetChatHistoryInput = z.object({
+    chatbotId: z.string().cuid(),
+    limit: z.number().min(1).max(100).optional().default(50),
 });
 
 // 🚨 새 Input Schema: 파일 처리 요청 🚨
@@ -53,10 +65,83 @@ export const ragRouter = createTRPCRouter({
         .mutation(async ({ ctx, input }) => {
             const repo = new RagRepository(ctx.prisma);
             try {
-                return await answerQuestionUsecase(repo, { chatbotId: input.chatbotId, question: input.question });
+                const result = await answerQuestionUsecase(repo, { chatbotId: input.chatbotId, question: input.question });
+                // 스트리밍만 반환 (retrievedChunkIds는 getAnswerMetadata로 조회 가능)
+                return result.stream;
             } catch (e) {
                 throw new TRPCError({ code: 'NOT_FOUND', message: 'Chatbot not found.' });
             }
+        }),
+
+    // B-1. 답변에 사용된 검색 결과 조회 (Metadata) - answerQuestion과 동일한 로직
+    getAnswerMetadata: publicProcedure
+        .input(AnswerQuestionInput)
+        .query(async ({ ctx, input }) => {
+            const repo = new RagRepository(ctx.prisma);
+            try {
+                const chatbot = await repo.findChatbotById(input.chatbotId);
+                if (!chatbot) {
+                    throw new TRPCError({ code: 'NOT_FOUND', message: 'Chatbot not found.' });
+                }
+
+                const { createEmbedding } = await import('@/server/infrastructure/llm/groq');
+                const questionVector = await createEmbedding(input.question);
+                
+                if (!questionVector || questionVector.length === 0) {
+                    return { retrievedChunkIds: [] };
+                }
+
+                const chunks = await repo.queryRelevantChunks(input.chatbotId, questionVector, 5);
+                return { retrievedChunkIds: chunks.map((c) => c.id) };
+            } catch (e) {
+                if (e instanceof TRPCError) throw e;
+                throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Failed to get answer metadata.' });
+            }
+        }),
+
+    // B-2. 답변 완료 후 QueryLog 저장 (Mutation)
+    saveAnswer: publicProcedure
+        .input(z.object({
+            chatbotId: z.string().cuid(),
+            question: z.string().min(5),
+            answer: z.string().min(1),
+            retrievedChunkIds: z.array(z.string()).default([]),
+        }))
+        .mutation(async ({ ctx, input }) => {
+            const repo = new RagRepository(ctx.prisma);
+            try {
+                return await repo.createQueryLog({
+                    chatbotId: input.chatbotId,
+                    question: input.question,
+                    answer: input.answer,
+                    retrievedChunkIds: input.retrievedChunkIds,
+                });
+            } catch (e) {
+                throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Failed to save query log.' });
+            }
+        }),
+
+    // C. 챗봇 목록 조회 (Query)
+    getChatbots: publicProcedure
+        .query(async ({ ctx }) => {
+            const repo = new RagRepository(ctx.prisma);
+            return getChatbotsUsecase(repo);
+        }),
+
+    // D. 챗봇 상세 조회 (Query)
+    getChatbotDetails: publicProcedure
+        .input(GetChatbotDetailsInput)
+        .query(async ({ ctx, input }) => {
+            const repo = new RagRepository(ctx.prisma);
+            return getChatbotDetailsUsecase(repo, input.chatbotId);
+        }),
+
+    // E. 대화 기록 조회 (Query)
+    getChatHistory: publicProcedure
+        .input(GetChatHistoryInput)
+        .query(async ({ ctx, input }) => {
+            const repo = new RagRepository(ctx.prisma);
+            return getChatHistoryUsecase(repo, input.chatbotId, input.limit);
         }),
 
     // C-1. 파일 업로드를 위한 Presigned URL 발급 (CORS 설정 시 사용)

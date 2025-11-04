@@ -7,9 +7,9 @@ import { createTRPCContext } from '@/server/trpc';
 const handler = async (req: Request) => {
   try {
     const response = await fetchRequestHandler({
-      endpoint: '/api/trpc',
-      req,
-      router: appRouter,
+    endpoint: '/api/trpc',
+    req,
+    router: appRouter,
       createContext: async (opts) => {
         try {
           return createTRPCContext({ headers: opts.req.headers });
