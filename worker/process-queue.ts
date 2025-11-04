@@ -1,8 +1,22 @@
 //Next.js 서버와 별도로 동작하는 비동기 워커 프로세스  -> 무한 루프 로직
-import { redis } from '../src/server/services/redis'; 
+import { Redis } from 'ioredis';
 import { prisma } from '../src/server/db';
-import { downloadFileAsBuffer } from '../src/server/services/r2';
-import { createEmbedding } from '../src/server/services/groq';  
+import { downloadFileAsBuffer } from '../src/server/infrastructure/r2/client';
+import { createEmbedding } from '../src/server/infrastructure/llm/groq';
+import { env } from '../src/server/config/env';
+
+// Worker 전용 Redis 클라이언트 생성 (서버와 독립적으로 동작)
+const redis = new Redis(env.UPSTASH_REDIS_URL || '', {
+    password: env.UPSTASH_REDIS_TOKEN,
+    maxRetriesPerRequest: null,
+    enableReadyCheck: false,
+    retryStrategy: (times) => {
+        if (times > 3) {
+            return null;
+        }
+        return Math.min(times * 200, 2000);
+    },
+});  
 
 const QUEUE_NAME = 'embedding_queue';
 
@@ -138,6 +152,61 @@ async function processJob(jobData: any) {
 // 큐 워커의 메인 루프
 async function startWorker() {
     console.log(`[WORKER] Starting worker process...`);
+    
+    // Redis 연결 이벤트 핸들러
+    redis.on('error', (error) => {
+        console.error('[WORKER] Redis 오류:', error);
+    });
+    
+    redis.on('close', () => {
+        console.warn('[WORKER] Redis 연결이 종료되었습니다.');
+    });
+    
+    redis.on('reconnecting', () => {
+        console.log('[WORKER] Redis 재연결 중...');
+    });
+    
+    redis.on('ready', () => {
+        console.log('[WORKER] Redis 연결 준비 완료');
+    });
+    
+    redis.on('connect', () => {
+        console.log('[WORKER] Redis 연결됨');
+    });
+    
+    // Redis 연결 확인
+    try {
+        // 연결이 이미 준비되어 있으면 대기
+        if (redis.status === 'ready') {
+            console.log(`[WORKER] Redis already connected`);
+        } else if (redis.status === 'connecting') {
+            console.log(`[WORKER] Redis connecting...`);
+            await new Promise((resolve) => {
+                redis.once('ready', resolve);
+                redis.once('error', resolve);
+            });
+        } else {
+            console.log(`[WORKER] Waiting for Redis connection...`);
+            await new Promise((resolve) => {
+                redis.once('ready', resolve);
+                redis.once('error', resolve);
+            });
+        }
+        
+        // 연결 상태 확인
+        if (redis.status !== 'ready') {
+            throw new Error(`Redis connection failed. Status: ${redis.status}`);
+        }
+        
+        console.log(`[WORKER] Redis connected. Status: ${redis.status}`);
+    } catch (error) {
+        console.error('[WORKER] Redis 연결 실패:', error);
+        console.error('[WORKER] Redis 연결을 재시도합니다...');
+        // 연결 실패 시 재시도
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        return startWorker(); // 재귀적으로 재시도
+    }
+    
     console.log(`[WORKER] Listening to queue: ${QUEUE_NAME}`);
     
     // 무한 루프를 돌며 Redis 큐를 감시
@@ -153,7 +222,7 @@ async function startWorker() {
             }
         } catch (error) {
             console.error('[WORKER] 루프 실행 중 오류:', error);
-            // 오류 발생 시 5초 대기 후 재시도
+            // 오류 발생 시 5초 대기 후 재시도 (ioredis가 자동으로 재연결 시도)
             await new Promise(resolve => setTimeout(resolve, 5000));
         }
     }
