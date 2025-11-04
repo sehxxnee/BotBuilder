@@ -2,6 +2,7 @@
 
 import React, { useState, FormEvent, useRef, useEffect } from 'react';
 import superjson from 'superjson';
+import { api } from '@/app/trpc/client';
 
 interface Message {
     id: string;
@@ -20,6 +21,10 @@ export function RealTimeChat({ chatbotId, chatbotName }: RealTimeChatProps) {
     const [input, setInput] = useState('');
     const [isStreaming, setIsStreaming] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
+
+    // tRPC mutations and utils
+    const saveAnswerMutation = api.rag.saveAnswer.useMutation();
+    const utils = api.useUtils();
 
     // 스크롤을 항상 하단으로 이동
     useEffect(() => {
@@ -73,14 +78,29 @@ export function RealTimeChat({ chatbotId, chatbotName }: RealTimeChatProps) {
             });
 
             if (!response.ok) {
-                throw new Error(`응답 오류: ${response.statusText}`);
+                // 에러 응답 본문 읽기
+                let errorMessage = `응답 오류: ${response.statusText}`;
+                try {
+                    const errorData = await response.json();
+                    errorMessage = errorData.error || errorData.message || errorMessage;
+                    if (errorData.details) {
+                        console.error('서버 오류 상세:', errorData.details);
+                    }
+                } catch {
+                    // JSON 파싱 실패 시 기본 메시지 사용
+                }
+                throw new Error(errorMessage);
             }
 
             if (!response.body) {
                 throw new Error('스트림 응답을 받을 수 없습니다.');
             }
 
-            // ReadableStream에서 데이터 읽기
+            // 1. 답변에 사용된 검색 결과(메타데이터) 조회
+            const metadata = await utils.rag.getAnswerMetadata.fetch({ chatbotId, question });
+            const retrievedChunkIds = metadata?.retrievedChunkIds || [];
+
+            // 2. ReadableStream에서 데이터 읽기
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
             let accumulatedContent = '';
@@ -104,6 +124,19 @@ export function RealTimeChat({ chatbotId, chatbotName }: RealTimeChatProps) {
                             : msg
                     )
                 );
+            }
+
+            // 3. 스트리밍 완료 후 대화 기록 저장
+            try {
+                await saveAnswerMutation.mutateAsync({
+                    chatbotId,
+                    question,
+                    answer: accumulatedContent,
+                    retrievedChunkIds,
+                });
+            } catch (saveError) {
+                console.error('대화 기록 저장 실패:', saveError);
+                // 저장 실패는 사용자에게 표시하지 않음 (부가 기능)
             }
         } catch (error) {
             console.error('채팅 오류:', error);

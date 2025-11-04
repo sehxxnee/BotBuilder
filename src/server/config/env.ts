@@ -12,6 +12,7 @@ const EnvSchema = z.object({
   UPSTASH_REDIS_TOKEN: z.string().optional(),
 
   GROQ_API_KEY: z.string().optional(),
+  GROQ_MODEL: z.string().optional(),
 });
 
 const parsed = EnvSchema.safeParse(process.env);

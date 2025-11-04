@@ -5,7 +5,7 @@ import React, { useState, FormEvent, ChangeEvent } from 'react';
 import { api } from '@/app/trpc/client'; // tRPC API 훅 import
 
 interface ChatbotCreatorProps {
-    onChatbotCreated: (chatbotId: string) => void;
+    onChatbotCreated: (chatbotId: string, name?: string) => void;
 }
 
 export function ChatbotCreator({ onChatbotCreated }: ChatbotCreatorProps) {
@@ -52,7 +52,7 @@ export function ChatbotCreator({ onChatbotCreated }: ChatbotCreatorProps) {
             // 1. 챗봇 생성 (DB에 챗봇 정보 기록)
             const newChatbot = await createChatbotMutation.mutateAsync({ name, systemPrompt: prompt });
             chatbotId = newChatbot.id;
-            onChatbotCreated(chatbotId); // 생성 후 메인 페이지에 ID 전달
+            onChatbotCreated(chatbotId, name); // 생성 후 메인 페이지에 ID와 이름 전달
 
             // 2. 파일을 Base64로 변환
             setStatus('2/4. 파일 준비 중...');

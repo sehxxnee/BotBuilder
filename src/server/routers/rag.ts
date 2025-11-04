@@ -64,12 +64,19 @@ export const ragRouter = createTRPCRouter({
         .input(AnswerQuestionInput)
         .mutation(async ({ ctx, input }) => {
             const repo = new RagRepository(ctx.prisma);
+            // 존재 여부를 먼저 명확히 확인 (명시적 404)
+            const exists = await repo.findChatbotById(input.chatbotId);
+            if (!exists) {
+                throw new TRPCError({ code: 'NOT_FOUND', message: 'Chatbot not found.' });
+            }
+
             try {
                 const result = await answerQuestionUsecase(repo, { chatbotId: input.chatbotId, question: input.question });
                 // 스트리밍만 반환 (retrievedChunkIds는 getAnswerMetadata로 조회 가능)
                 return result.stream;
-            } catch (e) {
-                throw new TRPCError({ code: 'NOT_FOUND', message: 'Chatbot not found.' });
+            } catch (e: any) {
+                if (e instanceof TRPCError) throw e;
+                throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: e?.message || 'Failed to answer question.' });
             }
         }),
 
