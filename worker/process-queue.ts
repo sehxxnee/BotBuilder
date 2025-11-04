@@ -1,22 +1,12 @@
 //Next.js 서버와 별도로 동작하는 비동기 워커 프로세스  -> 무한 루프 로직
-import { Redis } from 'ioredis';
 import { prisma } from '../src/server/db';
 import { downloadFileAsBuffer } from '../src/server/infrastructure/r2/client';
 import { createEmbedding } from '../src/server/infrastructure/llm/groq';
-import { env } from '../src/server/config/env';
+import { createRedisClient } from '../src/server/infrastructure/redis/client';
 
 // Worker 전용 Redis 클라이언트 생성 (서버와 독립적으로 동작)
-const redis = new Redis(env.UPSTASH_REDIS_URL || '', {
-    password: env.UPSTASH_REDIS_TOKEN,
-    maxRetriesPerRequest: null,
-    enableReadyCheck: false,
-    retryStrategy: (times) => {
-        if (times > 3) {
-            return null;
-        }
-        return Math.min(times * 200, 2000);
-    },
-});  
+// 자동 연결을 위해 lazyConnect 옵션 없음
+const redis = createRedisClient();  
 
 const QUEUE_NAME = 'embedding_queue';
 
@@ -82,7 +72,14 @@ function splitTextIntoChunks(text: string): string[] {
     return chunks.length > 0 ? chunks : [text];
 }
 
-async function processJob(jobData: any) {
+interface JobData {
+    fileKey: string;
+    fileName: string;
+    chatbotId: string;
+    timestamp?: string;
+}
+
+async function processJob(jobData: JobData) {
     const { fileKey, fileName, chatbotId } = jobData;
     console.log(`[WORKER] Job started for: ${fileName}`);
     
