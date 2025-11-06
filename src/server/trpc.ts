@@ -6,17 +6,21 @@ import { ZodError } from 'zod';
 import { getPrismaClient } from '@/server/db'; 
 import { redis, checkRateLimit } from '@/server/infrastructure/redis/client';
 import { r2Client } from '@/server/infrastructure/r2/client'; 
+import { getAuthContext, type AuthContext } from '@/server/infrastructure/auth/middleware';
 
 //tRPC 컨텍스트 초기화 ->  ctx 만들어내는 공장
-export const createTRPCContext = (opts: { headers: Headers }) => {
+export const createTRPCContext = async (opts: { headers: Headers }) => {
 	// 여기서 모든 백엔드 자원들을 반환하여, 모든 tRPC 프로시저(API 함수)에서 
 	// ctx.prisma, ctx.redis, ctx.r2Client 로 접근할 수 있게 함.
 	// 개발 환경에서는 항상 최신 DATABASE_URL을 사용하는 Prisma Client 반환
+	const auth = await getAuthContext(opts.headers);
+	
 	return {
 		headers: opts.headers,
 		prisma: getPrismaClient(), 
 		redis, 
-		r2Client, 
+		r2Client,
+		auth, // 인증 정보 (없으면 null)
 	};
 };
 
@@ -73,8 +77,26 @@ const rateLimitMiddleware = t.middleware(async ({ ctx, next, path }) => {
 });
 
 /**
+ * 인증이 필요한 미들웨어
+ */
+const isAuthed = t.middleware(async ({ ctx, next }) => {
+	if (!ctx.auth) {
+		throw new TRPCError({
+			code: 'UNAUTHORIZED',
+			message: '로그인이 필요합니다.',
+		});
+	}
+	return next({
+		ctx: {
+			...ctx,
+			auth: ctx.auth, // 타입 추론을 위해 명시적으로 전달
+		},
+	});
+});
+
+/**
  * 기본 tRPC 함수들
  */
 export const createTRPCRouter = t.router;
 export const publicProcedure = t.procedure.use(rateLimitMiddleware); // 🚨 publicProcedure에 Rate Limiting 미들웨어 적용
-// export const protectedProcedure = t.procedure.use(isAuthed); // 인증 미들웨어 추가 가능
+export const protectedProcedure = t.procedure.use(rateLimitMiddleware).use(isAuthed); // 인증 + Rate Limiting 미들웨어 적용

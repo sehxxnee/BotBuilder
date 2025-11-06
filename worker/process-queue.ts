@@ -9,6 +9,17 @@ import { createRedisClient } from '../src/server/infrastructure/redis/client';
 const redis = createRedisClient();  
 
 const QUEUE_NAME = 'embedding_queue';
+const DELAYED_SET = 'embedding_queue_delayed';
+const DLQ_NAME = 'embedding_queue_dlq';
+
+const MAX_ATTEMPTS = 5;
+const BASE_DELAY_MS = 2000; // 2s
+const BACKOFF_FACTOR = 2;   // 2x 지수 백오프
+
+// 메트릭 키
+const METRIC_PROCESSED = 'metrics:worker:processed_total';
+const METRIC_FAILED = 'metrics:worker:failed_total';
+const METRIC_RETRIED = 'metrics:worker:retried_total';
 
 // 청크 크기 설정 (토큰 기준으로 약 500자, 겹치는 부분 50자)
 const CHUNK_SIZE = 500;
@@ -77,11 +88,25 @@ interface JobData {
     fileName: string;
     chatbotId: string;
     timestamp?: string;
+    jobId?: string;
+    attempt?: number;
+    nextRunAt?: number; // epoch ms
 }
 
 async function processJob(jobData: JobData) {
     const { fileKey, fileName, chatbotId } = jobData;
-    console.log(`[WORKER] Job started for: ${fileName}`);
+    const attempt = jobData.attempt ?? 0;
+    const jobId = jobData.jobId ?? `job_${Date.now()}`;
+    console.log(`[WORKER] Job started (jobId=${jobId}, attempt=${attempt}) for: ${fileName}`);
+
+    // 상태 업데이트: processing
+    await redis.hset(`job:${jobId}`,
+        'status', 'processing',
+        'attempt', String(attempt),
+        'fileName', fileName,
+        'chatbotId', chatbotId,
+        'updatedAt', new Date().toISOString(),
+    );
     
     try {
         // 1. R2에서 파일 다운로드
@@ -139,11 +164,72 @@ async function processJob(jobData: JobData) {
         }
         
         console.log(`[WORKER] Job completed for: ${fileName} (${successCount}/${chunks.length} 청크 저장 성공)`);
+        // 상태 업데이트: completed 및 메트릭
+        await redis.hset(`job:${jobId}`,
+            'status', 'completed',
+            'attempt', String(attempt),
+            'successChunks', String(successCount),
+            'totalChunks', String(chunks.length),
+            'updatedAt', new Date().toISOString(),
+        );
+        await redis.incr(METRIC_PROCESSED);
 
     } catch (error) {
-        console.error(`[WORKER ERROR] Failed to process ${fileName}:`, error);
-        // 실패 시 데드 레터 큐(DLQ) 또는 알림 로직 추가
+        console.error(`[WORKER ERROR] Failed to process ${fileName} (jobId=${jobId}, attempt=${attempt}):`, error);
+        const lastError = error instanceof Error ? error.message : String(error);
+        // 재시도 또는 DLQ 이동
+        await handleJobFailure({ ...jobData, jobId, attempt }, lastError);
     }
+}
+
+function computeBackoffDelayMs(attempt: number): number {
+    const delay = BASE_DELAY_MS * Math.pow(BACKOFF_FACTOR, Math.max(0, attempt - 1));
+    // 상한 1분
+    return Math.min(delay, 60_000);
+}
+
+async function handleJobFailure(jobData: JobData, lastError?: string) {
+    const attempt = (jobData.attempt ?? 0) + 1;
+    if (attempt >= MAX_ATTEMPTS) {
+        // DLQ로 이동 (실패 사유를 함께 저장)
+        const failedPayload = {
+            ...jobData,
+            attempt,
+            failedAt: new Date().toISOString(),
+            lastError,
+        };
+        await redis.lpush(DLQ_NAME, JSON.stringify(failedPayload));
+        console.error(`[WORKER] Job moved to DLQ (jobId=${jobData.jobId}): ${jobData.fileName}`);
+        await redis.hset(`job:${jobData.jobId}`,
+            'status', 'failed',
+            'attempt', String(attempt),
+            'lastError', lastError || '',
+            'failedAt', new Date().toISOString(),
+            'updatedAt', new Date().toISOString(),
+        );
+        await redis.incr(METRIC_FAILED);
+        return;
+    }
+
+    const delay = computeBackoffDelayMs(attempt);
+    const nextRunAt = Date.now() + delay;
+    const retryPayload = {
+        ...jobData,
+        attempt,
+        nextRunAt,
+    } as JobData;
+
+    // 지연 큐: ZSET에 nextRunAt을 score로 저장
+    await redis.zadd(DELAYED_SET, nextRunAt, JSON.stringify(retryPayload));
+    console.warn(`[WORKER] Job scheduled for retry (jobId=${jobData.jobId}, attempt=${attempt}) in ${delay}ms`);
+    await redis.hset(`job:${jobData.jobId}`,
+        'status', 'retry_scheduled',
+        'attempt', String(attempt),
+        'nextRunAt', String(nextRunAt),
+        'lastError', lastError || '',
+        'updatedAt', new Date().toISOString(),
+    );
+    await redis.incr(METRIC_RETRIED);
 }
 
 // 큐 워커의 메인 루프
@@ -209,12 +295,24 @@ async function startWorker() {
     // 무한 루프를 돌며 Redis 큐를 감시
     while (true) {
         try {
+            // 1) 지연 큐에서 실행 시각이 지난 작업을 본 큐로 이동 (batch 10)
+            const now = Date.now();
+            const due = await redis.zrangebyscore(DELAYED_SET, 0, now, 'LIMIT', 0, 10);
+            if (due && due.length > 0) {
+                for (const item of due) {
+                    const removed = await redis.zrem(DELAYED_SET, item);
+                    if (removed) {
+                        await redis.lpush(QUEUE_NAME, item);
+                    }
+                }
+            }
+
             // Redis의 BRPOP명령: 
             // 큐에 데이터가 있을 때까지 10초 동안 대기, 데이터가 들어오면 꺼내옴
             const job = await redis.brpop(QUEUE_NAME, 10); 
             
             if (job) {
-                const jobData = JSON.parse(job[1]);
+                const jobData: JobData = JSON.parse(job[1]);
                 await processJob(jobData);
             }
         } catch (error) {

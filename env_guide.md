@@ -4,6 +4,15 @@
 
 ## 필수 환경 변수
 
+> **⚠️ 데이터베이스 마이그레이션 필요**
+> 
+> 인증 기능을 사용하려면 먼저 Prisma 마이그레이션을 실행해야 합니다:
+> ```bash
+> npm run db:migrate
+> ```
+> 
+> 이 명령어는 `User` 모델과 `Chatbot` 모델의 `userId` 관계를 데이터베이스에 생성합니다.
+
 ### 1.Supabase 데이터베이스 연결  
 
 ```env
@@ -130,5 +139,21 @@ GROQ_API_KEY=[YOUR-GROQ-API-KEY]
 - Groq 대시보드 접속: https://console.groq.com/
 - API Keys에서 새 API Key 생성
 
- 
+### 6. JWT 인증 설정
+
+```env
+JWT_SECRET=[YOUR-JWT-SECRET-KEY]
+```
+
+**설정 방법:**
+- 프로덕션 환경에서는 강력한 랜덤 문자열을 사용하세요.
+- 예시 생성 방법:
+  ```bash
+  # Node.js로 생성
+  node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+  ```
+  
+**주의:**
+- 프로덕션 환경에서는 반드시 강력한 비밀키를 사용하세요.
+- 개발 환경에서는 간단한 문자열도 사용 가능하지만, 프로덕션과는 다른 키를 사용하는 것을 권장합니다.
 

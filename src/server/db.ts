@@ -158,7 +158,7 @@ export const prisma = (() => {
         },
       },
       log: ['error'],
-    });
+  });
   }
   return globalForPrisma.prisma;
 })();

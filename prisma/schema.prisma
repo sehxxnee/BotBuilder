@@ -13,7 +13,21 @@ generator client {
 
 // --- 3. 핵심 데이터 모델 정의 ---
 
-// A. 챗봇 모델: 사용자가 빌더로 생성하는 챗봇의 설정
+// A. 사용자 모델: 인증 및 계정 관리
+model User {
+  id              String       @id @default(cuid())
+  email           String       @unique // 이메일 (로그인용)
+  password        String       // 해시된 비밀번호
+  name            String?      // 사용자 이름 (선택 사항)
+  
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  
+  // 관계 정의
+  chatbots        Chatbot[]
+}
+
+// B. 챗봇 모델: 사용자가 빌더로 생성하는 챗봇의 설정
 model Chatbot {
   id              String       @id @default(cuid())
   name            String       // 챗봇 이름
@@ -24,6 +38,10 @@ model Chatbot {
   
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
+  
+  // 사용자 관계 (인증 추가)
+  userId          String
+  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   
   // 관계 정의
   knowledgeChunks KBChunk[]

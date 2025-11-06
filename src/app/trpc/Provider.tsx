@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { httpBatchLink } from '@trpc/client';
 import React, { useState } from 'react';
 import superjson from 'superjson';
+import { getToken } from '@/lib/auth';
 
 import { api } from './client';
 
@@ -21,6 +22,11 @@ export function TRPCProvider({ children }: { children: React.ReactNode }) {
           url: '/api/trpc',
           // tRPC v11에서는 transformer를 링크 레벨에 설정
           transformer: superjson,
+          // Authorization 헤더 자동 추가
+          headers: () => {
+            const token = getToken();
+            return token ? { authorization: `Bearer ${token}` } : {};
+          },
         }),
       ],
     })

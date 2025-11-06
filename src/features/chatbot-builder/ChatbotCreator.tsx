@@ -13,11 +13,22 @@ export function ChatbotCreator({ onChatbotCreated }: ChatbotCreatorProps) {
     const [prompt, setPrompt] = useState('You are a helpful and concise AI assistant.');
     const [file, setFile] = useState<File | null>(null);
     const [status, setStatus] = useState('챗봇 이름과 지식 파일을 선택하세요.');
+    const [jobId, setJobId] = useState<string | null>(null);
 
     // --- tRPC 뮤테이션 훅 정의 ---
     const createChatbotMutation = api.rag.createChatbot.useMutation();
     const uploadFileMutation = api.rag.uploadFile.useMutation();
     const processFileMutation = api.rag.processFile.useMutation();
+
+    // 업로드 이후 작업 상태 폴링 (jobId가 있을 때만 활성화)
+    const processStatusQuery = api.rag.getProcessStatus.useQuery(
+        { jobId: jobId || '' },
+        {
+            enabled: !!jobId,
+            refetchInterval: 1500,
+            refetchOnWindowFocus: false,
+        }
+    );
 
     // 모든 뮤테이션의 로딩 상태를 통합하여 버튼 비활성화에 사용
     // tRPC v11에서는 isLoading 대신 isPending 사용
@@ -78,13 +89,16 @@ export function ChatbotCreator({ onChatbotCreated }: ChatbotCreatorProps) {
 
             // 4. 비동기 파일 처리 큐에 등록 (Redis Queue 사용)
             setStatus('4/4. 파일 처리 작업을 큐에 등록 중...');
-            await processFileMutation.mutateAsync({
+            const processResult = await processFileMutation.mutateAsync({
                 chatbotId,
                 fileKey,
                 fileName: file.name,
             });
+            if (processResult && 'jobId' in processResult) {
+                setJobId(processResult.jobId as string);
+            }
 
-            setStatus(`✅ 챗봇 생성 및 학습 작업 성공적으로 시작됨! 파일이 학습되는 데 시간이 걸릴 수 있습니다.`);
+            setStatus(`✅ 챗봇 생성 및 학습 작업 시작됨! 처리 상태는 아래에서 실시간으로 확인할 수 있어요.`);
 
         } catch (error) {
             console.error('챗봇 생성 오류:', error);
@@ -153,6 +167,45 @@ export function ChatbotCreator({ onChatbotCreated }: ChatbotCreatorProps) {
             <p className={`mt-4 text-sm ${status.includes('❌') ? 'text-red-600' : 'text-green-600'}`}>
                 {status}
             </p>
+            {jobId && (
+                <div className="mt-4 p-3 border rounded bg-gray-50">
+                    <div className="text-sm text-gray-700 font-semibold">작업 ID: <span className="font-mono">{jobId}</span></div>
+                    {processStatusQuery.isLoading && (
+                        <div className="text-sm text-gray-600 mt-1">상태 조회 중...</div>
+                    )}
+                    {processStatusQuery.data && (
+                        <div className="mt-2 space-y-1">
+                            <div className="text-sm">
+                                상태: <span className="font-semibold">{processStatusQuery.data?.status || 'unknown'}</span>
+                                {(processStatusQuery.data?.attempt || 0) > 0 && (
+                                    <span className="ml-2 text-xs text-gray-500">(재시도 {processStatusQuery.data?.attempt}회)</span>
+                                )}
+                            </div>
+                            {((processStatusQuery.data?.totalChunks || 0) > 0) && (
+                                <div>
+                                    <div className="w-full bg-gray-200 rounded h-2 overflow-hidden">
+                                        <div
+                                            className="bg-indigo-600 h-2"
+                                            style={{ width: `${Math.min(100, Math.round((((processStatusQuery.data?.successChunks || 0) / (processStatusQuery.data?.totalChunks || 1)) * 100)))}%` }}
+                                        />
+                                    </div>
+                                    <div className="text-xs text-gray-600 mt-1">
+                                        {(processStatusQuery.data?.successChunks || 0)} / {(processStatusQuery.data?.totalChunks || 0)}
+                                    </div>
+                                </div>
+                            )}
+                            {processStatusQuery.data?.lastError && (
+                                <div className="text-xs text-red-600 wrap-break-word">최근 오류: {processStatusQuery.data?.lastError}</div>
+                            )}
+                            {processStatusQuery.data?.nextRunAt && (
+                                <div className="text-xs text-gray-600">
+                                    다음 재시도 예정: {new Date(processStatusQuery.data?.nextRunAt).toLocaleString()}
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+            )}
         </form>
     );
 }

@@ -1,6 +1,5 @@
 import { z } from 'zod';
-import { createTRPCRouter, publicProcedure } from '@/server/trpc';
-import { getPresignedUploadUrl, uploadFileToR2 } from '@/server/infrastructure/r2/client';
+import { createTRPCRouter, publicProcedure, protectedProcedure } from '@/server/trpc';
 import { TRPCError } from '@trpc/server';
 import { RagRepository } from '@/server/domain/rag/repository';
 import { createChatbotUsecase } from '@/server/domain/rag/usecases/createChatbot';
@@ -9,6 +8,12 @@ import { processFileUsecase } from '@/server/domain/rag/usecases/processFile';
 import { getChatbotsUsecase } from '@/server/domain/rag/usecases/getChatbots';
 import { getChatbotDetailsUsecase } from '@/server/domain/rag/usecases/getChatbotDetails';
 import { getChatHistoryUsecase } from '@/server/domain/rag/usecases/getChatHistory';
+import { getAnswerMetadataUsecase } from '@/server/domain/rag/usecases/getAnswerMetadata';
+import { saveAnswerUsecase } from '@/server/domain/rag/usecases/saveAnswer';
+import { uploadFileUsecase } from '@/server/domain/rag/usecases/uploadFile';
+import { getUploadUrlUsecase } from '@/server/domain/rag/usecases/getUploadUrl';
+import { getJobStatus } from '@/server/infrastructure/redis/jobStatus';
+import type { Redis } from 'ioredis';
 
 // --- 1. 입력 유효성 검사 스키마 (Zod) ---
 const CreateChatbotInput = z.object({
@@ -51,12 +56,16 @@ const GetUploadUrlInput = z.object({
 // --- 2. RAG 라우터 정의 ---                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  
 export const ragRouter = createTRPCRouter({
 
-    // A. 챗봇 생성 (Mutation)
-    createChatbot: publicProcedure
+    // A. 챗봇 생성 (Mutation) - 인증 필요
+    createChatbot: protectedProcedure
         .input(CreateChatbotInput)
         .mutation(async ({ ctx, input }) => {
             const repo = new RagRepository(ctx.prisma);
-            return createChatbotUsecase(repo, { name: input.name, systemPrompt: input.systemPrompt });
+            return createChatbotUsecase(repo, { 
+                name: input.name, 
+                systemPrompt: input.systemPrompt,
+                userId: ctx.auth.userId,
+            });
         }),
 
     // B. RAG 기반 답변 스트리밍 (Mutation)
@@ -85,25 +94,10 @@ export const ragRouter = createTRPCRouter({
         .input(AnswerQuestionInput)
         .query(async ({ ctx, input }) => {
             const repo = new RagRepository(ctx.prisma);
-            try {
-                const chatbot = await repo.findChatbotById(input.chatbotId);
-                if (!chatbot) {
-                    throw new TRPCError({ code: 'NOT_FOUND', message: 'Chatbot not found.' });
-                }
-
-                const { createEmbedding } = await import('@/server/infrastructure/llm/groq');
-                const questionVector = await createEmbedding(input.question);
-                
-                if (!questionVector || questionVector.length === 0) {
-                    return { retrievedChunkIds: [] };
-                }
-
-                const chunks = await repo.queryRelevantChunks(input.chatbotId, questionVector, 5);
-                return { retrievedChunkIds: chunks.map((c) => c.id) };
-            } catch (e) {
-                if (e instanceof TRPCError) throw e;
-                throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Failed to get answer metadata.' });
-            }
+            return getAnswerMetadataUsecase(repo, {
+                chatbotId: input.chatbotId,
+                question: input.question,
+            });
         }),
 
     // B-2. 답변 완료 후 QueryLog 저장 (Mutation)
@@ -116,16 +110,12 @@ export const ragRouter = createTRPCRouter({
         }))
         .mutation(async ({ ctx, input }) => {
             const repo = new RagRepository(ctx.prisma);
-            try {
-                return await repo.createQueryLog({
-                    chatbotId: input.chatbotId,
-                    question: input.question,
-                    answer: input.answer,
-                    retrievedChunkIds: input.retrievedChunkIds,
-                });
-            } catch (e) {
-                throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Failed to save query log.' });
-            }
+            return saveAnswerUsecase(repo, {
+                chatbotId: input.chatbotId,
+                question: input.question,
+                answer: input.answer,
+                retrievedChunkIds: input.retrievedChunkIds,
+            });
         }),
 
     // C. 챗봇 목록 조회 (Query)
@@ -151,21 +141,22 @@ export const ragRouter = createTRPCRouter({
             return getChatHistoryUsecase(repo, input.chatbotId, input.limit);
         }),
 
+    // F. 작업 상태 조회 (Query)
+    getProcessStatus: publicProcedure
+        .input(z.object({ jobId: z.string().min(1) }))
+        .query(async ({ ctx, input }) => {
+            const redis = ctx.redis as Redis;
+            return getJobStatus(redis, input.jobId);
+        }),
+
     // C-1. 파일 업로드를 위한 Presigned URL 발급 (CORS 설정 시 사용)
     getUploadUrl: publicProcedure
         .input(GetUploadUrlInput)
         .mutation(async ({ input }) => {
-            // R2 서비스 함수를 호출하여 Presigned URL과 고유 Key를 받아옵니다.
-            const { url, fileKey } = await getPresignedUploadUrl(
-                input.fileName,
-                input.fileType
-            );
-            
-            // 클라이언트는 이 URL을 사용하여 R2에 직접 PUT 요청을 보내게 됩니다.
-            return {
-                uploadUrl: url,
-                fileKey: fileKey, // DB에 이 키를 저장하여 나중에 파일을 찾을 때 사용
-            };
+            return getUploadUrlUsecase({
+                fileName: input.fileName,
+                fileType: input.fileType,
+            });
         }),
 
     // 🚨 C-2. 백엔드를 통한 파일 업로드 (CORS 문제 회피)
@@ -179,26 +170,11 @@ export const ragRouter = createTRPCRouter({
             fileData: z.string(), // Base64 인코딩된 파일 데이터
         }))
         .mutation(async ({ input }) => {
-            try {
-                // Base64 데이터를 Buffer로 변환
-                const fileBuffer = Buffer.from(input.fileData, 'base64');
-                
-                // 파일 키 생성
-                const fileKey = `rag-files/${Date.now()}-${input.fileName}`;
-                
-                // R2에 직접 업로드
-                await uploadFileToR2(fileKey, fileBuffer, input.fileType);
-                
-                return {
-                    fileKey,
-                    success: true,
-                };
-            } catch (error) {
-                throw new TRPCError({
-                    code: 'INTERNAL_SERVER_ERROR',
-                    message: `파일 업로드 실패: ${error instanceof Error ? error.message : '알 수 없는 오류'}`,
-                });
-            }
+            return uploadFileUsecase({
+                fileName: input.fileName,
+                fileType: input.fileType,
+                fileData: input.fileData,
+            });
         }),
 
         // D. 파일 처리 요청을 받아 큐에 작업을 추가 (비동기 워크플로우 시작)

@@ -3,6 +3,8 @@
 import { z } from 'zod';
 import { createTRPCRouter, publicProcedure } from '../trpc';
 import { ragRouter } from './rag';
+import { authRouter } from './auth';
+
 /**
  * 모든 tRPC 라우터를 포함하는 메인 라우터입니다.
  */
@@ -15,7 +17,8 @@ export const appRouter = createTRPCRouter({
         greeting: `Hello ${input.text}`,
       };
     }),
-    rag: ragRouter,
+  rag: ragRouter,
+  auth: authRouter,
   // 여기에 chatbot, rag, builder 등의 서브 라우터가 추가될 예정입니다.
 });
 

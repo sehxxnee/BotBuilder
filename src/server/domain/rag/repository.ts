@@ -7,9 +7,9 @@ export class RagRepository {
     this.prisma = prisma;
   }
 
-  async createChatbot(name: string, systemPrompt: string) {
+  async createChatbot(name: string, systemPrompt: string, userId: string) {
     return this.prisma.chatbot.create({
-      data: { name, systemPrompt },
+      data: { name, systemPrompt, userId },
     });
   }
 

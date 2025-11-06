@@ -11,11 +11,14 @@ export async function processFileUsecase(
   }
 
   const QUEUE_NAME = 'embedding_queue';
+  const jobId = `job_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const jobData = {
     fileKey: params.fileKey,
     fileName: params.fileName,
     chatbotId: params.chatbotId,
     timestamp: new Date().toISOString(),
+    jobId,
+    attempt: 0,
   };
 
   await deps.redis.lpush(QUEUE_NAME, JSON.stringify(jobData));
@@ -23,6 +26,7 @@ export async function processFileUsecase(
   return {
     success: true,
     message: `'${params.fileName}' 파일의 학습 작업이 큐에 추가되었습니다. 잠시 후 챗봇 ${chatbot.name}에 반영됩니다.`,
+    jobId,
   };
 }
 

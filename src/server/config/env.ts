@@ -13,6 +13,8 @@ const EnvSchema = z.object({
 
   GROQ_API_KEY: z.string().optional(),
   GROQ_MODEL: z.string().optional(),
+
+  JWT_SECRET: z.string().min(1, 'JWT_SECRET is required').optional(),
 });
 
 const parsed = EnvSchema.safeParse(process.env);
