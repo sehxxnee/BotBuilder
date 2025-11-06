@@ -1,5 +1,3 @@
-// src/server/domain/auth/usecases/signIn.ts
-
 import { TRPCError } from '@trpc/server';
 import { verifyPassword, generateToken } from '@/server/infrastructure/auth/utils';
 import { PrismaClient } from '@prisma/client';
@@ -24,7 +22,6 @@ export async function signInUsecase(
 ): Promise<SignInResult> {
   const { email, password } = params;
 
-  // 사용자 조회
   const user = await prisma.user.findUnique({
     where: { email },
   });
@@ -36,7 +33,6 @@ export async function signInUsecase(
     });
   }
 
-  // 비밀번호 검증
   const isValidPassword = await verifyPassword(password, user.password);
 
   if (!isValidPassword) {
@@ -46,7 +42,6 @@ export async function signInUsecase(
     });
   }
 
-  // JWT 토큰 생성
   const token = generateToken(user.id);
 
   return {

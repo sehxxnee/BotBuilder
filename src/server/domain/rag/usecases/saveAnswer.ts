@@ -1,5 +1,3 @@
-// src/server/domain/rag/usecases/saveAnswer.ts
-
 import { TRPCError } from '@trpc/server';
 import { RagRepository } from '../repository';
 

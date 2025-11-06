@@ -1,5 +1,3 @@
-// src/server/domain/rag/usecases/getAnswerMetadata.ts
-
 import { TRPCError } from '@trpc/server';
 import { RagRepository } from '../repository';
 import { createEmbedding } from '@/server/infrastructure/llm/groq';

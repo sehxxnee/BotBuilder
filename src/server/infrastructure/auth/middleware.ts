@@ -1,5 +1,3 @@
-// src/server/infrastructure/auth/middleware.ts
-
 import { TRPCError } from '@trpc/server';
 import { verifyToken, extractTokenFromHeader } from './utils';
 import { getPrismaClient } from '@/server/db';
@@ -13,9 +11,6 @@ export interface AuthContext {
   };
 }
 
-/**
- * 인증 미들웨어: 요청에서 사용자 정보를 추출하고 검증합니다.
- */
 export async function getAuthContext(headers: Headers): Promise<AuthContext | null> {
   const authHeader = headers.get('authorization');
   const token = extractTokenFromHeader(authHeader);

@@ -1,5 +1,3 @@
-// src/server/infrastructure/redis/jobStatus.ts
-
 import type { Redis } from 'ioredis';
 
 export interface JobStatus {

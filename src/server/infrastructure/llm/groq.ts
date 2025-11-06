@@ -3,11 +3,11 @@ import { ReadableStream } from 'stream/web';
 import { env } from '@/server/config/env';
 
 if (!env.GROQ_API_KEY) {
-  console.warn('⚠️ GROQ_API_KEY가 설정되지 않았습니다. Groq API를 사용할 수 없습니다.');
+  console.warn('GROQ_API_KEY가 설정되지 않았습니다. Groq API를 사용할 수 없습니다.');
 }
 
 const groq = new Groq({ 
-  apiKey: env.GROQ_API_KEY || 'dummy-key', // API 키가 없어도 클라이언트는 생성되지만 호출 시 실패함
+  apiKey: env.GROQ_API_KEY || 'dummy-key',
 });
 
 const MOCK_VECTOR_DIMENSION = 768;
@@ -17,8 +17,6 @@ export async function createEmbedding(text: string): Promise<number[]> {
   return Array.from({ length: MOCK_VECTOR_DIMENSION }, () => Math.random());
 }
 
-// 기본 모델은 최신/안정 모델로 설정, 환경변수로 오버라이드 가능
-// 폐기된 versatile 계열 대신 instant 계열로 기본값 지정
 const GENERATION_MODEL = env.GROQ_MODEL || 'llama-3.1-8b-instant';
 
 export async function generateStreamingResponse(
