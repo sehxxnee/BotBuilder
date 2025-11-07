@@ -26,9 +26,11 @@
     "groq-sdk": "^0.34.0",
     "ioredis": "^5.8.2",
     "jsonwebtoken": "^9.0.2",
+    "lucide-react": "^0.552.0",
     "next": "16.0.0",
     "react": "19.2.0",
     "react-dom": "19.2.0",
+    "shadcn-ui": "^0.9.5",
     "superjson": "^2.2.3",
     "zod": "^4.1.12"
   },

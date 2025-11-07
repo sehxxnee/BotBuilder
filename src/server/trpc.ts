@@ -13,7 +13,7 @@ export const createTRPCContext = async (opts: { headers: Headers }) => {
 		headers: opts.headers,
 		prisma: getPrismaClient(), 
 		redis, 
-		r2Client,
+		r2Client, 
 		auth,
 	};
 };
@@ -39,14 +39,14 @@ const t = initTRPC.context<Context>().create({
 const rateLimitMiddleware = t.middleware(async ({ ctx, next, path }) => {
 	if (path === 'rag.answerQuestion') { 
 		try {
-			const ip = ctx.headers.get('x-forwarded-for') || '127.0.0.1';  
-			const isAllowed = await checkRateLimit(ip);
+		const ip = ctx.headers.get('x-forwarded-for') || '127.0.0.1';  
+		const isAllowed = await checkRateLimit(ip);
 
-			if (!isAllowed) {
-				throw new TRPCError({
-					code: 'TOO_MANY_REQUESTS',
-					message: 'API 요청 한도를 초과했습니다. 잠시 후 다시 시도해 주세요.',
-				});
+		if (!isAllowed) {
+			throw new TRPCError({
+				code: 'TOO_MANY_REQUESTS',
+				message: 'API 요청 한도를 초과했습니다. 잠시 후 다시 시도해 주세요.',
+			});
 			}
 		} catch (error) {
 			if (error instanceof TRPCError) {

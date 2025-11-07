@@ -54,8 +54,8 @@ export const ragRouter = createTRPCRouter({
         .mutation(async ({ ctx, input }) => {
             const repo = new RagRepository(ctx.prisma);
             return createChatbotUsecase(repo, { 
-                name: input.name, 
-                systemPrompt: input.systemPrompt,
+                    name: input.name,
+                    systemPrompt: input.systemPrompt,
                 userId: ctx.auth.userId,
             });
         }),
@@ -167,7 +167,7 @@ export const ragRouter = createTRPCRouter({
                     chatbotId: input.chatbotId,
                     fileKey: input.fileKey,
                     fileName: input.fileName,
-                });
+            });
             } catch (e) {
                 throw new TRPCError({ code: 'NOT_FOUND', message: 'Chatbot not found.' });
             }

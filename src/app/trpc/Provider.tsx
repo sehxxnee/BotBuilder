@@ -19,7 +19,7 @@ export function TRPCProvider({ children }: { children: React.ReactNode }) {
       links: [
         httpBatchLink({
           // Next.js API 엔드포인트를 가리킵니다.
-          url: '/api/trpc',
+          url: '/api/trpc', 
           // tRPC v11에서는 transformer를 링크 레벨에 설정
           transformer: superjson,
           // Authorization 헤더 자동 추가
@@ -28,7 +28,7 @@ export function TRPCProvider({ children }: { children: React.ReactNode }) {
             return token ? { authorization: `Bearer ${token}` } : {};
           },
         }),
-      ],
+      ], 
     })
   );
 

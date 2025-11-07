@@ -1,4 +1,4 @@
-"use client"
+'use client'
 
 import Link from "next/link"
 import { TextAtom } from "@/components/atoms/text-atom"
@@ -78,3 +78,5 @@ export function FooterOrganism() {
     </footer>
   )
 }
+
+export default FooterOrganism
